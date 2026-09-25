@@ -1,0 +1,99 @@
+graph LR
+    subgraph VENDORS [VENDORS]
+        VP(Vendor Portal)
+        EO(Email Orders)
+    end
+
+    subgraph USERS [USERS]
+        DU(Department Users)
+        AU(Admin)
+    end
+
+    subgraph ADMIN_PANEL [ADMIN PANEL]
+        AD(Dashboard)
+        UM(User Management)
+        AR(Reports)
+    end
+
+    subgraph PURCHASE_WORKFLOW [PURCHASE WORKFLOW]
+        PR(Purchase Request)
+        AW(Approval Workflow)
+        VQ(Vendor Quotation)
+        SV(Select Vendor)
+        PO(Purchase Order PO)
+        VC(Vendor Communication)
+        GR(Goods Receipt)
+        SU(Stock Update)
+    end
+
+    subgraph AI_CHATBOT [AI CHATBOT]
+        BOT(Chatbot)
+        BW(Warranty Info)
+        BR(Make Request)
+        BS(Usage Stats)
+        BSC(Stock Check)
+    end
+
+    subgraph INVENTORY_MANAGEMENT [INVENTORY MANAGEMENT]
+        ST(Stock Tracking)
+        PD(Partial Delivery)
+        INV(Invoices)
+        WAR(Warranty)
+        SUB(Subscriptions)
+    end
+
+    subgraph NOTIFICATIONS [NOTIFICATIONS]
+        SE(Subscription Expiry)
+        SMS(SMS)
+        WA(Warranty Alerts)
+        EM(Email)
+    end
+
+    subgraph DATABASE [DATABASE]
+        DBO[(Orders)]
+        DBS[(Stock)]
+        DBV[(Vendors)]
+        DBI[(Items)]
+        DBINV[(Invoices)]
+    end
+
+    %% Relationships and Workflows
+    VP -->|submit quotes| VQ
+    EO -->|submit quotes| VQ
+    
+    DU --> PR
+    AU --> AD
+    AD --> UM
+    AD --> AR
+
+    PR --> AW
+    AW --> VQ
+    VQ --> SV
+    SV --> PO
+    PO --> VC
+    VC --> GR
+    GR --> SU
+    
+    PO -->|create order| DBO
+    SU -->|update| DBS
+    SU --> ST
+
+    BOT --> BW
+    BOT --> BR
+    BOT --> BS
+    BOT --> BSC
+    BOT -->|read| DBO
+    BOT -->|read| DBS
+    BOT -->|read warranty data| WAR
+
+    ST --> PD
+    PD --> INV
+    INV -->|store| DBINV
+    INV --> WAR
+    WAR -.-> SUB
+
+    SUB -.->|trigger| SE
+    WAR -.->|trigger| WA
+    
+    SE --> SMS
+    WA --> EM

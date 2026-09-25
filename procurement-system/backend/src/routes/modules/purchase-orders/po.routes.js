@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { getAll, getById, create, update } from './po.controller.js';
 import { authMiddleware } from '../../../middleware/auth.middleware.js';
-import { rbac } from '../../../middleware/rbac.middleware.js';
+import { blockVendor, rbac } from '../../../middleware/rbac.middleware.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(blockVendor);
 
 router.get('/', rbac('Admin', 'Manager'), getAll);
 router.get('/:id', rbac('Admin', 'Manager'), getById);

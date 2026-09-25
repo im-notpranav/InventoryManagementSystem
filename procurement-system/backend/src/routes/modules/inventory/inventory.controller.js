@@ -62,7 +62,9 @@ export const getDashboardStats = async (req, res, next) => {
     const lowStockCount = await prisma.$queryRaw`
       SELECT COUNT(*)::int as count FROM "Inventory" WHERE quantity <= "reorderPoint"
     `;
-    const pendingRequests = await prisma.purchaseRequest.count({ where: { status: 'Pending' } });
+    const pendingRequests = await prisma.purchaseRequest.count({
+      where: { status: { in: ['pending', 'Pending'] } },
+    });
     const activeOrders = await prisma.purchaseOrder.count({ where: { status: { in: ['Draft', 'Sent', 'Acknowledged'] } } });
     const activeVendors = await prisma.vendor.count({ where: { status: 'Active' } });
 

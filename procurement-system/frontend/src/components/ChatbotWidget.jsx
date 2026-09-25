@@ -1,218 +1,186 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, X, Send, Trash2, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
+import { Bot, X, Send, Trash2, Sparkles, Maximize2, Package, AlertTriangle, ClipboardList, Shield, Store, BarChart3 } from 'lucide-react';
 import useChatbotStore from '../store/chatbot.store';
 import { chatbotApi } from '../api/index.js';
+import { useAuth } from '../context/AuthContext';
+import { MessageBubble, TypingDots, BotAvatar } from './chat/ChatParts';
+import { useReducedMotion } from '../hooks';
+import { cn } from '../lib/utils';
 
-const quickActions = [
-  { label: '📦 Check Stock', message: 'Show me low stock items' },
-  { label: '📋 My Requests', message: 'What is the status of my requests?' },
-  { label: '🛡️ Warranties', message: 'Show active warranties' },
-  { label: '❓ Help', message: 'help' },
+const STARTERS = [
+  { icon: BarChart3, title: 'Daily summary', msg: 'What needs my attention today?', tone: 'bg-brand-50 text-brand-700' },
+  { icon: Package, title: 'Check stock', msg: 'Show all stock levels', tone: 'bg-emerald-50 text-emerald-700' },
+  { icon: AlertTriangle, title: 'Low stock', msg: 'What items are running low?', tone: 'bg-amber-50 text-amber-700' },
+  { icon: ClipboardList, title: 'My requests', msg: 'Show my purchase requests', tone: 'bg-blue-50 text-blue-700' },
+  { icon: Shield, title: 'Warranties', msg: 'Show expiring warranties', tone: 'bg-violet-50 text-violet-700' },
+  { icon: Store, title: 'Vendors', msg: 'Show all vendors', tone: 'bg-teal-50 text-teal-700' },
 ];
 
-function renderMarkdownSafe(text) {
-  const parts = String(text || '').split(/(\*\*.*?\*\*)/g);
-  return (
-    <>
-      {parts.map((part, idx) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={idx}>{part.slice(2, -2)}</strong>;
-        }
-        return <span key={idx}>{part}</span>;
-      })}
-    </>
-  );
-}
+const THINKING = ['Checking database…', 'Analysing your request…', 'Looking that up…', 'Scanning inventory…', 'Almost ready…'];
+const MAX = 500;
 
 export default function ChatbotWidget() {
   const { isOpen, messages, isLoading, toggle, addMessage, setLoading, clearMessages } = useChatbotStore();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const reduced = useReducedMotion();
   const [input, setInput] = useState('');
-  const messagesEndRef = useRef(null);
+  const [thinkIdx, setThinkIdx] = useState(0);
+  const endRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isLoading]);
+    endRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' });
+  }, [messages, isLoading, reduced]);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 250);
   }, [isOpen]);
 
-  const handleSend = async (text = input) => {
-    if (!text.trim() || isLoading) return;
+  useEffect(() => {
+    if (!isLoading) return undefined;
+    setThinkIdx(0);
+    const id = setInterval(() => setThinkIdx((p) => (p + 1) % THINKING.length), 1500);
+    return () => clearInterval(id);
+  }, [isLoading]);
 
-    const userMessage = { role: 'user', content: text.trim() };
-    addMessage(userMessage);
+  // ESC closes
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => e.key === 'Escape' && toggle();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, toggle]);
+
+  const send = async (text = input) => {
+    const t = String(text || '').trim();
+    if (!t || isLoading) return;
+    addMessage({ role: 'user', content: t });
     setInput('');
     setLoading(true);
-
     try {
-      const res = await chatbotApi.query(text.trim());
-      if (res?.data?.text) {
-        addMessage({ role: 'assistant', content: res.data.text });
-      }
-    } catch (error) {
-      addMessage({
-        role: 'assistant',
-        content: "Sorry, I couldn't process that request. The server might be offline. Please try again later.",
-      });
+      const history = messages.filter((m) => !m.isError).map((m) => ({ role: m.role, content: m.content }));
+      const res = await chatbotApi.query({ message: t, conversation_history: history.slice(-10) });
+      const data = res?.data?.data || res?.data;
+      if (data?.reply) addMessage({ role: 'assistant', content: data.reply, suggestions: Array.isArray(data.suggestions) ? data.suggestions.slice(0, 4) : [], action_result: data.action_result || null });
+      else addMessage({ role: 'assistant', content: 'I could not generate a response right now.', isError: true, retryText: t });
+    } catch (err) {
+      const status = err?.response?.status;
+      addMessage({ role: 'assistant', content: status === 429 ? 'Please wait a moment before sending more.' : status === 503 ? 'InventBot is temporarily unavailable.' : "Sorry, I couldn't reach the server. Is the API running?", isError: true, retryText: t });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const showStarters = messages.length <= 1 && !isLoading;
 
   return (
     <>
-      {/* Floating Button */}
+      {/* Floating trigger */}
       <AnimatePresence>
         {!isOpen && (
           <motion.button
+            id="chatbot-toggle"
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.94 }}
             onClick={toggle}
-            className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg shadow-blue-600/30 flex items-center justify-center text-white z-50 transition-colors"
-            id="chatbot-toggle"
+            className="fixed bottom-[104px] right-4 lg:bottom-6 lg:right-6 z-[60] h-14 pl-4 pr-5 rounded-full text-white flex items-center gap-2.5 shadow-[0_16px_40px_-10px_rgba(30,58,95,0.55)]"
+            style={{ background: 'linear-gradient(135deg, #1e3a5f, #2e75b6)' }}
+            aria-label="Open InventBot assistant"
           >
-            <Bot className="w-6 h-6" />
-            {/* Pulse ring */}
-            <span className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-20" />
+            <span className="relative">
+              <Bot className="w-5 h-5" />
+              {!reduced && <span className="absolute -inset-3 rounded-full bg-white/20 animate-ping opacity-40" />}
+            </span>
+            <span className="text-sm font-semibold hidden sm:inline">Ask InventBot</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Chat Window */}
+      {/* Panel */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed bottom-6 right-6 w-96 h-[540px] bg-white rounded-2xl shadow-2xl shadow-blue-900/10 flex flex-col z-50 border border-slate-200 overflow-hidden"
             id="chatbot-window"
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+            className="fixed z-[70] inset-x-3 bottom-3 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[400px] h-[min(620px,calc(100vh-2rem))] bg-white rounded-2xl shadow-pop border border-slate-200 flex flex-col overflow-hidden"
+            role="dialog"
+            aria-label="InventBot assistant"
           >
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
+            {/* header */}
+            <div className="relative px-4 py-3 flex items-center justify-between text-white shrink-0" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #2e75b6 100%)' }}>
+              <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #93c5fd, transparent 45%)' }} />
+              <div className="relative flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur grid place-items-center"><Bot className="w-5 h-5" /></span>
                 <div>
-                  <h3 className="text-white font-semibold text-sm">InventBot AI</h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                    <span className="text-blue-100 text-xs">Online</span>
-                  </div>
+                  <p className="font-display font-semibold text-sm leading-tight">InventBot AI</p>
+                  <p className="text-[11px] text-blue-100/80 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online · answers from live data</p>
                 </div>
               </div>
-              <div className="flex gap-1">
-                <button onClick={clearMessages} className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <button onClick={toggle} className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition">
-                  <X className="w-4 h-4" />
-                </button>
+              <div className="relative flex items-center gap-0.5">
+                <button type="button" onClick={() => { toggle(); navigate('/chatbot'); }} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Open full page"><Maximize2 className="w-4 h-4" /></button>
+                <button type="button" onClick={clearMessages} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Clear chat"><Trash2 className="w-4 h-4" /></button>
+                <button type="button" onClick={toggle} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Close"><X className="w-4 h-4" /></button>
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-slate-50">
-              {messages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-md'
-                        : 'bg-white border border-slate-200 text-slate-700 rounded-bl-md shadow-sm'
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap break-words">{renderMarkdownSafe(msg.content)}</div>
-                    <div className={`text-xs mt-1 ${msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'}`}>
-                      {msg.timestamp?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+            {/* messages */}
+            <div className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5 bg-slate-50/70">
+              {messages.map((m) => <MessageBubble key={m.id} msg={m} userName={user?.name} onRetry={send} onSuggest={send} compact showCopy={false} />)}
 
-              {isLoading && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex justify-start"
-                >
-                  <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-bl-md shadow-sm">
-                    <div className="flex gap-1.5">
-                      {[0, 1, 2].map((i) => (
-                        <motion.div
-                          key={i}
-                          className="w-2 h-2 bg-blue-400 rounded-full"
-                          animate={{ y: [0, -6, 0] }}
-                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
-                        />
-                      ))}
-                    </div>
+              {showStarters && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="pt-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 px-1 mb-2">Try one of these</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {STARTERS.map((c, i) => (
+                      <motion.button key={c.title} type="button" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * i }} onClick={() => send(c.msg)} className="text-left rounded-xl border border-slate-200 bg-white p-3 hover:border-brand-300 hover:shadow-card transition group">
+                        <span className={cn('w-7 h-7 rounded-lg grid place-items-center', c.tone)}><c.icon className="w-3.5 h-3.5" /></span>
+                        <p className="text-xs font-semibold text-slate-800 mt-2 group-hover:text-brand-800">{c.title}</p>
+                        <p className="text-[10.5px] text-slate-500 leading-snug mt-0.5 line-clamp-2">{c.msg}</p>
+                      </motion.button>
+                    ))}
                   </div>
                 </motion.div>
               )}
-              <div ref={messagesEndRef} />
+
+              {isLoading && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2.5">
+                  <BotAvatar size="sm" className="mt-0.5" />
+                  <div className="rounded-2xl rounded-tl-md bg-white border border-slate-200/80 shadow-card px-3.5 py-2.5"><TypingDots label={THINKING[thinkIdx]} /></div>
+                </motion.div>
+              )}
+              <div ref={endRef} />
             </div>
 
-            {/* Quick Actions */}
-            {messages.length <= 2 && (
-              <div className="px-4 py-2 flex gap-2 flex-wrap bg-white border-t border-slate-100">
-                {quickActions.map(({ label, message }) => (
-                  <button
-                    key={label}
-                    onClick={() => handleSend(message)}
-                    className="text-xs px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-full transition font-medium"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Input */}
-            <div className="px-3 py-3 bg-white border-t border-slate-200 flex-shrink-0">
-              <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-1 border border-slate-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition">
-                <Sparkles className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            {/* composer */}
+            <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-2.5">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 focus-within:border-brand-500 focus-within:bg-white focus-within:shadow-glow transition">
+                <Sparkles className="w-4 h-4 text-brand-400 shrink-0" />
                 <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask InventBot..."
-                  className="flex-1 bg-transparent py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
                   id="chatbot-input"
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value.slice(0, MAX))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                  placeholder="Ask InventBot…"
+                  className="flex-1 bg-transparent py-2.5 text-sm outline-none placeholder:text-slate-400"
                 />
-                <button
-                  onClick={() => handleSend()}
-                  disabled={!input.trim() || isLoading}
-                  className="w-8 h-8 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg flex items-center justify-center text-white transition flex-shrink-0"
-                >
+                <motion.button whileTap={{ scale: 0.92 }} type="button" onClick={() => send()} disabled={!input.trim() || isLoading} className="w-8 h-8 rounded-lg grid place-items-center bg-brand-700 text-white disabled:bg-slate-200 disabled:text-slate-400 transition shrink-0" aria-label="Send">
                   <Send className="w-3.5 h-3.5" />
-                </button>
+                </motion.button>
+              </div>
+              <div className="flex justify-between mt-1 px-1 text-[10px] text-slate-400">
+                <span>Enter to send · Esc to close</span>
+                {input.length > 300 && <span className={input.length > 450 ? 'text-red-500' : ''}>{MAX - input.length} left</span>}
               </div>
             </div>
           </motion.div>

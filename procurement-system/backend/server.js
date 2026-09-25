@@ -1,71 +1,53 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
-import env from './src/config/env.js';
-import prisma from './src/config/db.js';
-import { errorMiddleware } from './src/middleware/error.middleware.js';
-import { initScheduler } from './src/utils/scheduler.js';
-import routes from './src/routes/index.js';
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+const routes = require('./src/routes/index');
+const { errorMiddleware } = require('./src/middleware/error.middleware');
+require('./src/utils/scheduler'); // Register cron jobs
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// Security
-app.use(helmet());
-app.use(cors({
-  origin: env.FRONTEND_URL,
-  credentials: true,
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
-app.use(cookieParser());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  message: { success: false, message: 'Too many requests. Please try again later.' },
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowed = [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      'http://localhost:3000',
+    ];
+    if (!origin || allowed.includes(origin)) callback(null, true);
+    else callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Rate limit exceeded.' }
 });
-app.use('/api/', limiter);
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
+app.use('/api/', apiLimiter);
+
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// API Routes
 app.use('/api', routes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+app.get('/health', (req, res) =>
+  res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-// Global error handler
 app.use(errorMiddleware);
 
-// Start server
-const PORT = env.PORT;
-
-const start = async () => {
-  try {
-    await prisma.$connect();
-    console.log('📦 Database connected');
-
-    initScheduler();
-
-    app.listen(PORT, () => {
-      console.log(`🚀 InventBot API running on http://localhost:${PORT}`);
-      console.log(`🌍 Environment: ${env.NODE_ENV}`);
-    });
-  } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
-    process.exit(1);
-  }
-};
-
-start();
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
+app.listen(PORT, () =>
+  console.log(`Backend running on http://localhost:${PORT}`));

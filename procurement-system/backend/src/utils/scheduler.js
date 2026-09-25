@@ -1,150 +1,191 @@
-import cron from 'node-cron';
-import prisma from '../config/db.js';
-import { sendWarrantyExpiryEmail, sendSubscriptionExpiryEmail } from './mailer.js';
+require('dotenv').config();
+const cron = require('node-cron');
+const prisma = require('../config/db');
+const {
+  sendWarrantyExpiryAlert,
+  sendSubscriptionExpiryAlert,
+} = require('./mailer');
 
-export const initScheduler = () => {
-  // Check warranty expiry daily at 8 AM
-  cron.schedule('0 8 * * *', async () => {
-    console.log('[SCHEDULER] Checking warranty expiry...');
-    try {
-      const thirtyDaysFromNow = new Date();
-      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+console.log('[SCHEDULER] Warranty and subscription alert scheduler started');
 
-      const expiringWarranties = await prisma.warranty.findMany({
-        where: {
-          status: 'Active',
-          endDate: {
-            lte: thirtyDaysFromNow,
-            gte: new Date(),
-          },
-        },
-        include: { product: true },
-      });
+// Runs every day at 8:00 AM
+cron.schedule('0 8 * * *', async () => {
+  console.log('[SCHEDULER] Running daily warranty check...');
 
-      if (expiringWarranties.length > 0) {
-        // Get admin users to notify
-        const admins = await prisma.user.findMany({
-          where: { role: { name: 'Admin' }, isActive: true },
-          select: { email: true },
-        });
+  try {
+    // Get all admin users
+    const admins = await prisma.user.findMany({
+      where: {
+        role: { role_name: 'Admin' },
+        is_active: true,
+      },
+      select: { user_id: true, name: true, email: true },
+    });
 
-        for (const admin of admins) {
-          await sendWarrantyExpiryEmail(admin.email, expiringWarranties);
-        }
-
-        // Create in-app notifications
-        for (const warranty of expiringWarranties) {
-          const daysLeft = Math.ceil((warranty.endDate - new Date()) / (1000 * 60 * 60 * 24));
-          for (const admin of admins) {
-            const adminUser = await prisma.user.findUnique({ where: { email: admin.email } });
-            if (adminUser) {
-              await prisma.notification.create({
-                data: {
-                  userId: adminUser.id,
-                  title: 'Warranty Expiring Soon',
-                  message: `Warranty for ${warranty.product.name} expires in ${daysLeft} days.`,
-                  type: 'warning',
-                  link: '/warranties',
-                },
-              });
-            }
-          }
-        }
-
-        console.log(`[SCHEDULER] ${expiringWarranties.length} expiring warranties found, notifications sent.`);
-      }
-    } catch (error) {
-      console.error('[SCHEDULER] Warranty check error:', error.message);
+    if (admins.length === 0) {
+      console.log('[SCHEDULER] No admin users found to notify');
+      return;
     }
-  });
 
-  // Check subscription expiry daily at 8:30 AM
-  cron.schedule('30 8 * * *', async () => {
-    console.log('[SCHEDULER] Checking subscription expiry...');
-    try {
-      const thirtyDaysFromNow = new Date();
-      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+    const today = new Date();
 
-      const expiringSubscriptions = await prisma.subscription.findMany({
-        where: {
-          status: 'Active',
-          alertSent: false,
-          endDate: {
-            lte: thirtyDaysFromNow,
-            gte: new Date(),
-          },
-        },
-      });
+    // Check warranties
+    const warranties = await prisma.warranty.findMany({
+      where: { notified: false },
+      include: {
+        product: true,
+        vendor: true,
+      },
+    });
 
-      if (expiringSubscriptions.length > 0) {
-        const admins = await prisma.user.findMany({
-          where: { role: { name: 'Admin' }, isActive: true },
-          select: { id: true, email: true },
-        });
+    let warrantiesAlerted = 0;
 
+    for (const w of warranties) {
+      const daysLeft = Math.ceil(
+        (new Date(w.end_date) - today) / (1000 * 60 * 60 * 24)
+      );
+
+      // Alert if expired, expiring within 30 days
+      const shouldAlert = daysLeft <= 30;
+
+      if (shouldAlert) {
         for (const admin of admins) {
-          await sendSubscriptionExpiryEmail(admin.email, expiringSubscriptions);
-          
-          for (const sub of expiringSubscriptions) {
-            const daysLeft = Math.ceil((sub.endDate - new Date()) / (1000 * 60 * 60 * 24));
-            await prisma.notification.create({
-              data: {
-                userId: admin.id,
-                title: 'Subscription Expiring',
-                message: `${sub.name} subscription expires in ${daysLeft} days. Renewal cost: ₹${sub.renewalCost.toLocaleString('en-IN')}`,
-                type: 'warning',
-                link: '/warranties',
-              },
+          try {
+            await sendWarrantyExpiryAlert({
+              to:           admin.email,
+              adminName:    admin.name,
+              productName:  w.product?.name || 'Unknown Product',
+              serialNumber: w.serial_number,
+              vendorName:   w.vendor?.vendor_name,
+              endDate:      w.end_date,
+              daysLeft,
             });
+            console.log(
+              `[SCHEDULER] Warranty alert sent to ${admin.email}` +
+              ` for ${w.product?.name} (${daysLeft} days left)`
+            );
+          } catch (emailErr) {
+            console.error('[SCHEDULER] Email failed:', emailErr.message);
           }
         }
 
-        // Mark subscriptions as alerted
-        await prisma.subscription.updateMany({
-          where: { id: { in: expiringSubscriptions.map(s => s.id) } },
-          data: { alertSent: true },
+        // Mark as notified so we don't spam every day
+        await prisma.warranty.update({
+          where: { warranty_id: w.warranty_id },
+          data:  { notified: true },
         });
 
-        console.log(`[SCHEDULER] ${expiringSubscriptions.length} expiring subscriptions found, notifications sent.`);
+        warrantiesAlerted++;
       }
-    } catch (error) {
-      console.error('[SCHEDULER] Subscription check error:', error.message);
     }
-  });
 
-  // Check low stock daily at 9 AM
-  cron.schedule('0 9 * * *', async () => {
-    console.log('[SCHEDULER] Checking low stock levels...');
-    try {
-      const lowStockItems = await prisma.$queryRaw`
-        SELECT i.*, p.name as "productName"
-        FROM "Inventory" i
-        JOIN "Product" p ON p.id = i."productId"
-        WHERE i.quantity <= i."reorderPoint"
-      `;
+    // Check subscriptions
+    const subscriptions = await prisma.subscription.findMany({
+      where: { notified: false },
+      include: { product: true },
+    });
 
-      if (lowStockItems.length > 0) {
-        const admins = await prisma.user.findMany({
-          where: { role: { name: 'Admin' }, isActive: true },
-        });
+    let subscriptionsAlerted = 0;
 
+    for (const s of subscriptions) {
+      const daysLeft = Math.ceil(
+        (new Date(s.expiry_date) - today) / (1000 * 60 * 60 * 24)
+      );
+
+      const shouldAlert = daysLeft <= 30;
+
+      if (shouldAlert) {
         for (const admin of admins) {
-          await prisma.notification.create({
-            data: {
-              userId: admin.id,
-              title: 'Low Stock Alert',
-              message: `${lowStockItems.length} items are below reorder point.`,
-              type: 'warning',
-              link: '/inventory',
-            },
-          });
+          try {
+            await sendSubscriptionExpiryAlert({
+              to:          admin.email,
+              adminName:   admin.name,
+              serviceName: s.service_name,
+              productName: s.product?.name || 'Unknown',
+              expiryDate:  s.expiry_date,
+              daysLeft,
+            });
+          } catch (emailErr) {
+            console.error('[SCHEDULER] Subscription email failed:', emailErr.message);
+          }
         }
-        console.log(`[SCHEDULER] ${lowStockItems.length} low-stock items found.`);
-      }
-    } catch (error) {
-      console.error('[SCHEDULER] Low stock check error:', error.message);
-    }
-  });
 
-  console.log('[SCHEDULER] Cron jobs initialized.');
-};
+        await prisma.subscription.update({
+          where: { subscription_id: s.subscription_id },
+          data:  { notified: true },
+        });
+
+        subscriptionsAlerted++;
+      }
+    }
+
+    console.log(
+      `[SCHEDULER] Daily check complete. ` +
+      `Warranties alerted: ${warrantiesAlerted}, ` +
+      `Subscriptions alerted: ${subscriptionsAlerted}`
+    );
+
+  } catch (err) {
+    console.error('[SCHEDULER] Daily check failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Kolkata',
+});
+
+// Also run once immediately on startup to catch any missed alerts
+// Wait 10 seconds for server to fully initialize first
+setTimeout(async () => {
+  console.log('[SCHEDULER] Running startup warranty check...');
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: { role_name: 'Admin' }, is_active: true },
+      select: { user_id: true, name: true, email: true },
+    });
+
+    const today = new Date();
+
+    // Find critical warranties (expired or expiring within 7 days)
+    // that have NOT been notified — startup only checks critical ones
+    const criticalWarranties = await prisma.warranty.findMany({
+      where: { notified: false },
+      include: { product: true, vendor: true },
+    });
+
+    const critical = criticalWarranties.filter(w => {
+      const days = Math.ceil(
+        (new Date(w.end_date) - today) / (1000 * 60 * 60 * 24)
+      );
+      return days <= 7; // Only truly critical on startup
+    });
+
+    if (critical.length > 0) {
+      console.log(
+        `[SCHEDULER] Found ${critical.length} critical warranty alert(s)`
+      );
+      for (const w of critical) {
+        const daysLeft = Math.ceil(
+          (new Date(w.end_date) - today) / (1000 * 60 * 60 * 24)
+        );
+        for (const admin of admins) {
+          await sendWarrantyExpiryAlert({
+            to:           admin.email,
+            adminName:    admin.name,
+            productName:  w.product?.name,
+            serialNumber: w.serial_number,
+            vendorName:   w.vendor?.vendor_name,
+            endDate:      w.end_date,
+            daysLeft,
+          }).catch(e => console.error('[SCHEDULER]', e.message));
+        }
+        await prisma.warranty.update({
+          where: { warranty_id: w.warranty_id },
+          data:  { notified: true },
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[SCHEDULER] Startup check failed:', err.message);
+  }
+}, 10000);
+
+module.exports = {};

@@ -1,0 +1,1 @@
+procurement-system\frontend\src\assets\hero.png

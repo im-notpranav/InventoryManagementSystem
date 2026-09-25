@@ -1,81 +1,80 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import useAuthStore from './store/auth.store'
-import Login from './pages/auth/Login'
-import DashboardLayout from './components/DashboardLayout'
-import Dashboard from './pages/dashboard/Dashboard'
-import InventoryPage from './pages/inventory/InventoryPage'
-import ProductsPage from './pages/products/ProductsPage'
-import VendorsPage from './pages/vendors/VendorsPage'
-import VendorPortalPage from './pages/vendors/VendorPortalPage.new'
-import PurchaseRequestPage from './pages/purchase-requests/PurchaseRequestPage'
-import RFQPage from './pages/purchase-requests/RFQPage'
-import PurchaseOrderPage from './pages/purchase-orders/PurchaseOrderPage'
-import GoodsReceiptPage from './pages/goods-receipts/GoodsReceiptPage'
-import InvoicesPage from './pages/invoices/InvoicesPage'
-import WarrantiesPage from './pages/warranties/WarrantiesPage'
-import NotificationsPage from './pages/notifications/NotificationsPage'
-import UsersPage from './pages/users/UsersPage'
-import AuditLogsPage from './pages/users/AuditLogsPage'
-import SettingsPage from './pages/settings/SettingsPage'
-import ChatbotPage from './pages/chatbot/ChatbotPage'
+import { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth, ROLE_HOMES } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import RequireRole from './components/RequireRole';
+import DashboardLayout from './components/DashboardLayout';
+import { PageSkeleton } from './components/ui';
+import Login from './pages/auth/Login';
 
-function ProtectedRoute({ children }) {
-  const token = useAuthStore((s) => s.token)
-  return token ? children : <Navigate to="/login" replace />
+// Code-split every portal page so the login screen stays light.
+const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
+const InventoryPage = lazy(() => import('./pages/inventory/Inventory'));
+const ProductsPage = lazy(() => import('./pages/products/ProductsPage'));
+const VendorsPage = lazy(() => import('./pages/vendors/VendorsPage'));
+const PurchaseRequestPage = lazy(() => import('./pages/purchase-requests/PurchaseRequestPage'));
+const PurchaseOrderPage = lazy(() => import('./pages/purchase-orders/PurchaseOrderPage'));
+const QuotationsPage = lazy(() => import('./pages/quotations/QuotationsPage'));
+const UsersPage = lazy(() => import('./pages/users/UsersPage'));
+const ChatbotPage = lazy(() => import('./pages/chatbot/Chatbot'));
+const VendorPortalPage = lazy(() => import('./pages/vendor-portal/VendorPortal'));
+const GateEntryPage = lazy(() => import('./pages/gate-entry/GateEntry'));
+const BillingPage = lazy(() => import('./pages/billing/Billing'));
+const WorkOrdersPage = lazy(() => import('./pages/work-orders/WorkOrders'));
+const WarrantiesPage = lazy(() => import('./pages/warranties/Warranties'));
+const NotificationsPage = lazy(() => import('./pages/notifications/NotificationsPage'));
+const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
+
+const ALL_ROLES = ['Admin', 'Department User', 'Vendor', 'Watchman', 'Accountant'];
+
+function RoleBasedRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return <PageSkeleton stats={0} />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <Navigate to={ROLE_HOMES[user.role] || '/login'} replace />;
 }
 
-function AdminRoute({ children }) {
-  const user = useAuthStore((s) => s.user)
-  if (!user || (user.role !== 'Admin' && user.role !== 'Manager')) {
-    return <Navigate to="/dashboard" replace />
-  }
-  return children
-}
-
-function VendorRoute({ children }) {
-  const user = useAuthStore((s) => s.user)
-  // Only Vendor role can access vendor portal
-  if (!user || user.role !== 'Vendor') {
-    return <Navigate to="/dashboard" replace />
-  }
-  return children
-}
+const page = (roles, element) => (
+  <RequireRole roles={roles}>
+    <Suspense fallback={<PageSkeleton />}>{element}</Suspense>
+  </RequireRole>
+);
 
 export default function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/admin/users" element={<Navigate to="/users" replace />} />
 
-      <Route path="/" element={
-        <ProtectedRoute>
-          <DashboardLayout />
-        </ProtectedRoute>
-      }>
-        <Route path="dashboard"          element={<Dashboard />} />
-        <Route path="inventory"          element={<InventoryPage />} />
-        <Route path="products"           element={<ProductsPage />} />
-        <Route path="purchase-requests"  element={<PurchaseRequestPage />} />
-        <Route path="warranties"         element={<WarrantiesPage />} />
-        <Route path="notifications"      element={<NotificationsPage />} />
-        <Route path="chatbot"            element={<ChatbotPage />} />
-        
-        {/* Vendor Portal - for users with Vendor role */}
-        <Route path="vendor-portal" element={<VendorRoute><VendorPortalPage /></VendorRoute>} />
-        <Route path="vendor-portal/:orderId" element={<VendorRoute><VendorPortalPage /></VendorRoute>} />
-        
-        {/* Admin/Manager only routes */}
-        <Route path="rfq"             element={<AdminRoute><RFQPage /></AdminRoute>} />
-        <Route path="purchase-orders" element={<AdminRoute><PurchaseOrderPage /></AdminRoute>} />
-        <Route path="vendors"         element={<AdminRoute><VendorsPage /></AdminRoute>} />
-        <Route path="goods-receipts"  element={<AdminRoute><GoodsReceiptPage /></AdminRoute>} />
-        <Route path="invoices"        element={<AdminRoute><InvoicesPage /></AdminRoute>} />
-        
-        {/* Admin only routes */}
-        <Route path="admin/users"      element={<AdminRoute><UsersPage /></AdminRoute>} />
-        <Route path="admin/audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
-        <Route path="admin/settings"   element={<AdminRoute><SettingsPage /></AdminRoute>} />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<RoleBasedRedirect />} />
+
+        <Route path="dashboard" element={page(['Admin', 'Department User'], <Dashboard />)} />
+        <Route path="purchase-requests" element={page(['Admin', 'Department User'], <PurchaseRequestPage />)} />
+        <Route path="vendors" element={page(['Admin'], <VendorsPage />)} />
+        <Route path="quotations" element={page(['Admin'], <QuotationsPage />)} />
+        <Route path="work-orders" element={page(['Admin'], <WorkOrdersPage />)} />
+        <Route path="inventory" element={page(['Admin', 'Department User'], <InventoryPage />)} />
+        <Route path="warranties" element={page(['Admin', 'Department User'], <WarrantiesPage />)} />
+        <Route path="products" element={page(['Admin'], <ProductsPage />)} />
+        <Route path="purchase-orders" element={page(['Admin'], <PurchaseOrderPage />)} />
+        <Route path="users" element={page(['Admin'], <UsersPage />)} />
+        <Route path="chatbot" element={page(['Admin', 'Department User'], <ChatbotPage />)} />
+        <Route path="vendor-portal" element={page(['Vendor'], <VendorPortalPage />)} />
+        <Route path="gate-entry" element={page(['Watchman', 'Admin'], <GateEntryPage />)} />
+        <Route path="billing" element={page(['Admin', 'Accountant', 'Watchman'], <BillingPage />)} />
+        <Route path="notifications" element={page(ALL_ROLES, <NotificationsPage />)} />
+        <Route path="settings" element={page(ALL_ROLES, <SettingsPage />)} />
       </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  )
+  );
 }

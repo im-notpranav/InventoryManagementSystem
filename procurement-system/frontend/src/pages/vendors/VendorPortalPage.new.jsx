@@ -1,22 +1,59 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Package, CheckCircle, XCircle, Edit3, Clock, Building2,
   FileText, AlertTriangle, Truck, Calendar, DollarSign,
   Send, History, ClipboardList, RefreshCw, Eye, ChevronRight,
-  Star, MapPin, Phone, Mail, TrendingUp, ShoppingCart
+  Star, MapPin, Phone, Mail, TrendingUp, ShoppingCart, LayoutDashboard
 } from 'lucide-react';
 import api from '../../api/axios';
-import useAuthStore from '../../store/auth.store';
+import { useAuth } from '../../context/AuthContext';
+
+const getApiPayload = (response, fallback) => {
+  // Support both axios responses ({ data: { success, data } }) and interceptor-unwrapped responses ({ success, data }).
+  if (response && typeof response === 'object' && 'success' in response) {
+    return response.data ?? fallback;
+  }
+
+  if (response && typeof response === 'object' && 'data' in response) {
+    const payload = response.data;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return payload.data ?? fallback;
+    }
+    return payload ?? fallback;
+  }
+
+  return response ?? fallback;
+};
+
+const getApiErrorMessage = (error, fallback) => error?.message || fallback;
+
+const routeTabMap = {
+  dashboard: 'dashboard',
+  rfqs: 'rfqs',
+  quotations: 'quotations',
+  orders: 'orders',
+  deliveries: 'deliveries',
+  history: 'history',
+};
+
+const tabRouteMap = {
+  dashboard: '/vendor-portal',
+  rfqs: '/vendor-portal/rfqs',
+  quotations: '/vendor-portal/quotations',
+  orders: '/vendor-portal/orders',
+  deliveries: '/vendor-portal/deliveries',
+  history: '/vendor-portal/history',
+};
 
 export default function VendorPortalPage() {
-  const { orderId } = useParams();
+  const { tab: tabParam, orderId } = useParams();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
+  const { user } = useAuth();
   
   // Active tab
-  const [activeTab, setActiveTab] = useState('orders');
+  const [activeTab, setActiveTab] = useState('dashboard');
   
   // Profile & Stats
   const [vendorProfile, setVendorProfile] = useState(null);
@@ -47,24 +84,41 @@ export default function VendorPortalPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
+  const [changeReason, setChangeReason] = useState('');
+  const [requestedTerms, setRequestedTerms] = useState('');
+  const [requestedDeliveryDate, setRequestedDeliveryDate] = useState('');
+  const [requestItems, setRequestItems] = useState([]);
+  const [myChangeRequests, setMyChangeRequests] = useState([]);
   const [expectedDelivery, setExpectedDelivery] = useState('');
+
+  useEffect(() => {
+    const mappedTab = routeTabMap[tabParam] || 'dashboard';
+    setActiveTab(mappedTab);
+  }, [tabParam]);
 
   // Load data on mount
   useEffect(() => {
     fetchProfile();
     fetchOrders();
-    // Also fetch RFQs to show pending count in tab badge
+    // Also fetch RFQs and quotations to show counts in tab badges
     fetchRfqs();
+    fetchQuotations();
+    fetchMyChangeRequests();
   }, []);
 
   // Load tab-specific data
   useEffect(() => {
-    if (activeTab === 'quotations') {
+    if (activeTab === 'rfqs') {
       fetchRfqs();
+    } else if (activeTab === 'quotations') {
       fetchQuotations();
+    } else if (activeTab === 'orders') {
+      fetchOrders();
+      fetchMyChangeRequests();
     } else if (activeTab === 'history') {
       fetchOrderHistory();
       fetchQuotationHistory();
+      fetchMyChangeRequests();
     }
   }, [activeTab]);
 
@@ -80,11 +134,11 @@ export default function VendorPortalPage() {
   const fetchProfile = async () => {
     try {
       const res = await api.get('/vendor-portal/profile');
-      setVendorProfile(res.data?.data || null);
+      setVendorProfile(getApiPayload(res, null));
       setError(null);
     } catch (err) {
       console.error('Failed to fetch profile:', err);
-      setError(err.response?.data?.message || 'Failed to load vendor profile');
+      setError(getApiErrorMessage(err, 'Failed to load vendor profile'));
     }
   };
 
@@ -92,11 +146,11 @@ export default function VendorPortalPage() {
     setLoading(true);
     try {
       const res = await api.get('/vendor-portal/orders');
-      setOrders(res.data?.data || []);
+      setOrders(getApiPayload(res, []));
       setError(null);
     } catch (err) {
       console.error('Failed to fetch orders:', err);
-      setError(err.response?.data?.message || 'Failed to load orders');
+      setError(getApiErrorMessage(err, 'Failed to load orders'));
     } finally {
       setLoading(false);
     }
@@ -105,7 +159,7 @@ export default function VendorPortalPage() {
   const fetchOrderDetails = async (id) => {
     try {
       const res = await api.get(`/vendor-portal/orders/${id}`);
-      setSelectedOrder(res.data?.data || null);
+      setSelectedOrder(getApiPayload(res, null));
     } catch (err) {
       console.error('Failed to fetch order details:', err);
     }
@@ -116,9 +170,7 @@ export default function VendorPortalPage() {
       console.log('Fetching RFQs...');
       const response = await api.get('/vendor-portal/rfqs');
       console.log('RFQ response:', response);
-      // axios interceptor returns response.data, so we get { success, data, message }
-      // The actual RFQ array is in response.data
-      const rfqData = response?.data || [];
+      const rfqData = getApiPayload(response, []);
       console.log('RFQ data:', rfqData);
       setRfqs(Array.isArray(rfqData) ? rfqData : []);
     } catch (err) {
@@ -130,7 +182,7 @@ export default function VendorPortalPage() {
   const fetchQuotations = async () => {
     try {
       const response = await api.get('/vendor-portal/quotations');
-      const quotationData = response?.data || [];
+      const quotationData = getApiPayload(response, []);
       setQuotations(Array.isArray(quotationData) ? quotationData : []);
     } catch (err) {
       console.error('Failed to fetch quotations:', err);
@@ -141,7 +193,7 @@ export default function VendorPortalPage() {
   const fetchOrderHistory = async () => {
     try {
       const res = await api.get('/vendor-portal/history/orders');
-      setOrderHistory(res.data?.data || { orders: [], summary: {} });
+      setOrderHistory(getApiPayload(res, { orders: [], summary: {} }));
     } catch (err) {
       console.error('Failed to fetch order history:', err);
     }
@@ -150,9 +202,19 @@ export default function VendorPortalPage() {
   const fetchQuotationHistory = async () => {
     try {
       const res = await api.get('/vendor-portal/history/quotations');
-      setQuotationHistory(res.data?.data || { quotations: [], summary: {} });
+      setQuotationHistory(getApiPayload(res, { quotations: [], summary: {} }));
     } catch (err) {
       console.error('Failed to fetch quotation history:', err);
+    }
+  };
+
+  const fetchMyChangeRequests = async () => {
+    try {
+      const res = await api.get('/po-change-requests/mine');
+      setMyChangeRequests(getApiPayload(res, []));
+    } catch (err) {
+      console.error('Failed to fetch change requests:', err);
+      setMyChangeRequests([]);
     }
   };
 
@@ -171,7 +233,7 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to confirm order');
+      alert(getApiErrorMessage(err, 'Failed to confirm order'));
     }
   };
 
@@ -186,22 +248,32 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reject order');
+      alert(getApiErrorMessage(err, 'Failed to reject order'));
     }
   };
 
   const handleRequestChanges = async () => {
-    if (!selectedOrder || !actionMessage) return;
+    if (!selectedOrder || !actionMessage || !changeReason) return;
     try {
-      await api.post(`/vendor-portal/orders/${selectedOrder.id}/request-changes`, {
-        message: actionMessage,
+      await api.post('/po-change-requests', {
+        purchase_order_id: selectedOrder.id,
+        requested_changes: actionMessage,
+        reason: changeReason,
+        requested_delivery: requestedDeliveryDate || null,
+        requested_terms: requestedTerms || null,
+        requested_items: requestItems,
       });
       setShowChangesModal(false);
       setActionMessage('');
+      setChangeReason('');
+      setRequestedDeliveryDate('');
+      setRequestedTerms('');
+      setRequestItems([]);
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
+      fetchMyChangeRequests();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to request changes');
+      alert(getApiErrorMessage(err, 'Failed to request changes'));
     }
   };
 
@@ -214,7 +286,7 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update delivery status');
+      alert(getApiErrorMessage(err, 'Failed to update delivery status'));
     }
   };
 
@@ -231,7 +303,7 @@ export default function VendorPortalPage() {
       fetchRfqs();
       fetchQuotations();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit quotation');
+      alert(getApiErrorMessage(err, 'Failed to submit quotation'));
     }
   };
 
@@ -245,6 +317,36 @@ export default function VendorPortalPage() {
     }));
     setQuoteForm({ items, deliveryDays: '', terms: '', notes: '' });
     setShowQuoteModal(true);
+  };
+
+  const openChangeRequestModal = () => {
+    if (!selectedOrder) return;
+    setActionMessage('');
+    setChangeReason('');
+    setRequestedTerms(selectedOrder.paymentTerms || '');
+    setRequestedDeliveryDate(
+      selectedOrder.expectedDelivery
+        ? new Date(selectedOrder.expectedDelivery).toISOString().split('T')[0]
+        : ''
+    );
+    setRequestItems(
+      (selectedOrder.items || []).map((item) => ({
+        productId: item.productId,
+        productName: item.product?.name || 'Item',
+        quantityOrdered: item.quantityOrdered,
+        priceEach: item.priceEach,
+      }))
+    );
+    setShowChangesModal(true);
+  };
+
+  const updateRequestItem = (index, field, value) => {
+    setRequestItems((prev) => {
+      const next = [...prev];
+      const parsedValue = field === 'quantityOrdered' || field === 'priceEach' ? Number(value) : value;
+      next[index] = { ...next[index], [field]: Number.isFinite(parsedValue) ? parsedValue : value };
+      return next;
+    });
   };
 
   // ─── STYLING HELPERS ──────────────────────────────────────────
@@ -268,12 +370,23 @@ export default function VendorPortalPage() {
   const pendingCount = orders.filter(o => o.status === 'Sent' || o.status === 'Draft').length;
   const totalValue = orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
   const pendingRfqCount = rfqs.filter(r => !r.hasQuoted).length;
+  const inTransitCount = orders.filter(o => o.status === 'In_Transit' || o.status === 'Acknowledged').length;
+
+  const pendingChangeRequestsCount = myChangeRequests.filter((request) => request.status === 'pending').length;
 
   const tabs = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'rfqs', label: 'RFQs', icon: ClipboardList, count: rfqs.length, badge: pendingRfqCount > 0 ? pendingRfqCount : null },
+    { id: 'quotations', label: 'Quotations', icon: FileText, count: quotations.length },
     { id: 'orders', label: 'Purchase Orders', icon: Package, count: orders.length },
-    { id: 'quotations', label: 'Quotations', icon: FileText, count: pendingRfqCount, badge: pendingRfqCount > 0 ? 'New' : null },
-    { id: 'history', label: 'History', icon: History },
+    { id: 'deliveries', label: 'Deliveries', icon: Truck, count: inTransitCount, badge: inTransitCount > 0 ? inTransitCount : null },
+    { id: 'history', label: 'History', icon: History, badge: pendingChangeRequestsCount > 0 ? pendingChangeRequestsCount : null },
   ];
+
+  const goToTab = (tabId) => {
+    const route = tabRouteMap[tabId] || '/vendor-portal';
+    navigate(route);
+  };
 
   // ─── RENDER ───────────────────────────────────────────────────
 
@@ -305,26 +418,6 @@ export default function VendorPortalPage() {
             )}
           </div>
         </div>
-        
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="bg-white/10 rounded-xl p-4">
-            <div className="text-3xl font-bold">{vendorProfile?.stats?.totalOrders || orders.length}</div>
-            <div className="text-blue-200 text-sm">Total Orders</div>
-          </div>
-          <div className="bg-white/10 rounded-xl p-4">
-            <div className="text-3xl font-bold">{vendorProfile?.stats?.pendingOrders || pendingCount}</div>
-            <div className="text-blue-200 text-sm">Pending Action</div>
-          </div>
-          <div className="bg-white/10 rounded-xl p-4">
-            <div className="text-3xl font-bold">₹{((vendorProfile?.stats?.totalValue || totalValue) / 1000).toFixed(0)}K</div>
-            <div className="text-blue-200 text-sm">Total Value</div>
-          </div>
-          <div className="bg-white/10 rounded-xl p-4">
-            <div className="text-3xl font-bold">{vendorProfile?.stats?.totalQuotations || 0}</div>
-            <div className="text-blue-200 text-sm">Quotations</div>
-          </div>
-        </div>
       </div>
 
       {/* Error Banner */}
@@ -338,12 +431,16 @@ export default function VendorPortalPage() {
         </div>
       )}
 
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
+        <span className="font-semibold">Access Scope:</span> Vendor portal only. This account cannot access dashboard, admin, inventory, or user modules.
+      </div>
+
       {/* Tabs */}
       <div className="bg-white rounded-xl border border-slate-200 p-1 flex gap-1">
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => goToTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition ${
               activeTab === tab.id 
                 ? 'bg-blue-600 text-white' 
@@ -370,6 +467,91 @@ export default function VendorPortalPage() {
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
+        {activeTab === 'dashboard' && (
+          <motion.div
+            key="dashboard"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {/* Quick Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white border rounded-xl p-6 shadow-sm">
+                <div className="text-3xl font-bold text-slate-800">{vendorProfile?.stats?.totalRfqs || rfqs.length}</div>
+                <div className="text-slate-500 text-sm mt-1">Total RFQs Received</div>
+              </div>
+              <div className="bg-white border rounded-xl p-6 shadow-sm">
+                <div className="text-3xl font-bold text-blue-600">{vendorProfile?.stats?.pendingQuotations || pendingRfqCount}</div>
+                <div className="text-slate-500 text-sm mt-1">Pending Quotations</div>
+              </div>
+              <div className="bg-white border rounded-xl p-6 shadow-sm">
+                <div className="text-3xl font-bold text-amber-600">{vendorProfile?.stats?.totalOrders || orders.length}</div>
+                <div className="text-slate-500 text-sm mt-1">Active Purchase Orders</div>
+              </div>
+              <div className="bg-white border rounded-xl p-6 shadow-sm">
+                <div className="text-3xl font-bold text-emerald-600">{vendorProfile?.stats?.completedOrders || 0}</div>
+                <div className="text-slate-500 text-sm mt-1">Completed Deliveries</div>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Recent RFQs */}
+              <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                <h3 className="font-semibold text-slate-800 mb-4 flex items-center justify-between">
+                  Recent RFQs
+                  <button onClick={() => goToTab('rfqs')} className="text-blue-600 text-sm font-medium hover:underline">View All</button>
+                </h3>
+                <div className="space-y-3">
+                  {rfqs.slice(0, 4).map(rfq => (
+                    <div key={rfq.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between hover:bg-slate-100 transition">
+                      <div>
+                        <div className="font-semibold text-slate-800">RFQ-{rfq.rfqNo?.slice(-8) || rfq.id}</div>
+                        <div className="text-xs text-slate-500 mt-1">{rfq.request?.items?.length || 0} items • Deadline: {rfq.deadline ? new Date(rfq.deadline).toLocaleDateString() : 'N/A'}</div>
+                      </div>
+                      {rfq.hasQuoted ? (
+                        <span className="text-emerald-700 text-xs font-semibold px-2.5 py-1 bg-emerald-100 rounded-full">Quoted</span>
+                      ) : rfq.status === 'Selected' ? (
+                        <span className="text-blue-700 text-xs font-semibold px-2.5 py-1 bg-blue-100 rounded-full">Selected</span>
+                      ) : (
+                        <span className="text-amber-700 text-xs font-semibold px-2.5 py-1 bg-amber-100 rounded-full animate-pulse">Pending</span>
+                      )}
+                    </div>
+                  ))}
+                  {rfqs.length === 0 && <div className="text-sm text-slate-500 text-center py-6 border border-dashed rounded-xl">No recent RFQs</div>}
+                </div>
+              </div>
+
+              {/* Recent Orders */}
+              <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                <h3 className="font-semibold text-slate-800 mb-4 flex items-center justify-between">
+                  Recent Orders
+                  <button onClick={() => goToTab('orders')} className="text-blue-600 text-sm font-medium hover:underline">View All</button>
+                </h3>
+                <div className="space-y-3">
+                  {orders.slice(0, 4).map(order => (
+                    <div key={order.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between hover:bg-slate-100 transition">
+                      <div>
+                        <div className="font-semibold text-slate-800">{order.po_number || order.orderNo || `PO-${order.id}`}</div>
+                        <div className="text-xs text-slate-500 mt-1">₹{Number(order.totalAmount).toLocaleString('en-IN')}</div>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                        order.status === 'Sent' || order.status === 'Draft' ? 'bg-amber-100 text-amber-700' :
+                        order.status === 'In_Transit' || order.status === 'Acknowledged' ? 'bg-blue-100 text-blue-700' :
+                        order.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {order.status?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  ))}
+                  {orders.length === 0 && <div className="text-sm text-slate-500 text-center py-6 border border-dashed rounded-xl">No active orders</div>}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === 'orders' && (
           <motion.div
             key="orders"
@@ -406,7 +588,7 @@ export default function VendorPortalPage() {
                         }`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-slate-800">PO-{order.orderNo?.slice(-8) || order.id}</span>
+                          <span className="font-semibold text-slate-800">{order.po_number || order.orderNo || `PO-${order.id}`}</span>
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[order.status] || 'bg-slate-100'}`}>
                             {order.status?.replace(/_/g, ' ')}
                           </span>
@@ -429,7 +611,7 @@ export default function VendorPortalPage() {
                   <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                     <div>
                       <h3 className="font-semibold text-slate-800 text-lg">
-                        PO-{selectedOrder.orderNo?.slice(-8) || selectedOrder.id}
+                        {selectedOrder.po_number || selectedOrder.orderNo || `PO-${selectedOrder.id}`}
                       </h3>
                       <p className="text-slate-500 text-sm">
                         Created {new Date(selectedOrder.createdAt).toLocaleDateString()}
@@ -523,7 +705,7 @@ export default function VendorPortalPage() {
                         <CheckCircle className="w-4 h-4" /> Confirm Order
                       </button>
                       <button
-                        onClick={() => setShowChangesModal(true)}
+                        onClick={openChangeRequestModal}
                         className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600"
                       >
                         <Edit3 className="w-4 h-4" /> Request Changes
@@ -592,123 +774,229 @@ export default function VendorPortalPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="grid lg:grid-cols-2 gap-6"
+            className="space-y-6"
           >
-            {/* Open RFQs */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100">
-                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5 text-blue-600" />
-                  Open RFQs ({rfqs.filter(r => !r.hasQuoted).length} pending)
-                </h3>
-                <p className="text-sm text-slate-500">Submit quotations for these requests</p>
+            {/* Quotations Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Your Quotations</h2>
+                <p className="text-sm text-slate-500">
+                  {quotations.filter(q => q.status === 'Selected').length} selected • {quotations.length} total
+                </p>
               </div>
-              
-              {rfqs.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">
-                  <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No open RFQs available</p>
-                  <p className="text-xs mt-2">Check back later or contact admin</p>
-                </div>
-              ) : (
-                <div className="divide-y max-h-[500px] overflow-y-auto">
-                  {rfqs.map(rfq => (
-                    <div key={rfq.id} className={`p-4 ${rfq.hasQuoted ? 'bg-slate-50' : ''}`}>
+              <button
+                onClick={fetchQuotations}
+                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+              >
+                <RefreshCw className="w-4 h-4" /> Refresh
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="font-semibold text-slate-800">PO Change Requests</h3>
+                <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                  {myChangeRequests.length} total
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600">PO</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600">Requested On</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {myChangeRequests.map((request) => (
+                      <tr key={request.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium text-slate-700">
+                          {request.purchaseOrder?.po_number || request.purchaseOrder?.orderNo || request.purchaseOrderId}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {new Date(request.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            request.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : request.status === 'rejected'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {request.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 max-w-md truncate">{request.reason}</td>
+                      </tr>
+                    ))}
+                    {myChangeRequests.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                          No change requests yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {quotations.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <FileText className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+                <h3 className="text-lg font-medium text-slate-600 mb-2">No Quotations Yet</h3>
+                <p className="text-slate-500">Submit quotations from the RFQs tab to see them here</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b">
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">RFQ</th>
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Amount</th>
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Items</th>
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Delivery</th>
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Submitted</th>
+                      <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {quotations.map(quote => (
+                      <tr key={quote.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-slate-800">
+                            RFQ-{quote.rfq?.rfqNo?.slice(-8) || quote.rfqId}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-700">
+                          ₹{Number(quote.totalAmount).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{quote.items?.length || 0}</td>
+                        <td className="px-4 py-3 text-slate-600">{quote.deliveryDays || '-'} days</td>
+                        <td className="px-4 py-3 text-slate-500 text-sm">
+                          {new Date(quote.submittedAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${quoteStatusColors[quote.status]}`}>
+                            {quote.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          </motion.div>
+        )}
+
+        {activeTab === 'rfqs' && (
+          <motion.div
+            key="rfqs"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {/* RFQs Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Your RFQ Invitations</h2>
+                <p className="text-sm text-slate-500">
+                  {pendingRfqCount} pending quote{pendingRfqCount !== 1 ? 's' : ''} • {rfqs.length} total
+                </p>
+              </div>
+              <button
+                onClick={fetchRfqs}
+                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+              >
+                <RefreshCw className="w-4 h-4" /> Refresh
+              </button>
+            </div>
+            
+            {rfqs.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <ClipboardList className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+                <h3 className="text-lg font-medium text-slate-600 mb-2">No RFQs Found</h3>
+                <p className="text-slate-500">You haven't been invited to any RFQs yet</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {rfqs.map(rfq => (
+                  <div
+                    key={rfq.id}
+                    className={`bg-white rounded-2xl border overflow-hidden hover:shadow-lg transition ${
+                      rfq.hasQuoted ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="p-4 border-b border-slate-100">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-slate-800">RFQ-{rfq.rfqNo?.slice(-8)}</span>
-                        <div className="flex items-center gap-2">
-                          {rfq.hasQuoted && (
-                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                              Quoted
-                            </span>
-                          )}
-                          {rfq.deadline && (
-                            <span className="text-xs text-slate-500">
-                              Due: {new Date(rfq.deadline).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
+                        <span className="font-bold text-slate-800">RFQ-{rfq.rfqNo?.slice(-8)}</span>
+                        {rfq.hasQuoted ? (
+                          <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> Quoted
+                          </span>
+                        ) : rfq.status === 'Selected' ? (
+                          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                            Selected
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold animate-pulse">
+                            Pending
+                          </span>
+                        )}
                       </div>
-                      <div className="text-sm text-slate-500 mb-3">
-                        {rfq.request?.items?.length || 0} items • {rfq.request?.user?.department}
+                      <div className="text-sm text-slate-500">
+                        {rfq.request?.items?.length || 0} items requested
                       </div>
-                      <div className="flex flex-wrap gap-2 mb-3">
+                    </div>
+                    
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Calendar className="w-4 h-4" />
+                        <span>Deadline: {rfq.deadline ? new Date(rfq.deadline).toLocaleDateString() : 'No deadline'}</span>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2">
                         {rfq.request?.items?.slice(0, 3).map((item, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-slate-100 rounded text-xs">
+                          <span key={idx} className="px-2 py-1 bg-slate-100 rounded text-xs text-slate-700">
                             {item.product?.name || item.customProductName}
                           </span>
                         ))}
+                        {rfq.request?.items?.length > 3 && (
+                          <span className="px-2 py-1 bg-slate-100 rounded text-xs text-slate-500">
+                            +{rfq.request.items.length - 3} more
+                          </span>
+                        )}
                       </div>
-                      {rfq.hasQuoted ? (
-                        <div className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-200 text-slate-600 rounded-lg cursor-not-allowed">
-                          <CheckCircle className="w-4 h-4" /> Already Quoted
+                      
+                      {rfq.hasQuoted && rfq.myQuotation ? (
+                        <div className="mt-3 p-3 bg-emerald-50 rounded-lg">
+                          <div className="text-sm font-medium text-emerald-800">Your Quote</div>
+                          <div className="text-lg font-bold text-emerald-700">
+                            ₹{Number(rfq.myQuotation.totalAmount).toLocaleString('en-IN')}
+                          </div>
+                          <div className="text-xs text-emerald-600">
+                            {rfq.myQuotation.deliveryDays} days delivery
+                          </div>
                         </div>
                       ) : (
                         <button
                           onClick={() => initQuoteForm(rfq)}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
                         >
                           <Send className="w-4 h-4" /> Submit Quotation
                         </button>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Submitted Quotations */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100">
-                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-emerald-600" />
-                  Your Quotations
-                </h3>
-                <p className="text-sm text-slate-500">Quotations you've submitted</p>
+                  </div>
+                ))}
               </div>
-              
-              {quotations.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">
-                  <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No quotations submitted yet</p>
-                </div>
-              ) : (
-                <div className="divide-y max-h-[500px] overflow-y-auto">
-                  {quotations.map(quote => (
-                    <div key={quote.id} className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-slate-800">
-                          Quote for RFQ-{quote.rfq?.rfqNo?.slice(-8)}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${quoteStatusColors[quote.status]}`}>
-                          {quote.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-slate-500">Total:</span>
-                          <span className="ml-1 font-medium">₹{Number(quote.totalAmount).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Items:</span>
-                          <span className="ml-1">{quote.items?.length || 0}</span>
-                        </div>
-                        {quote.deliveryDays && (
-                          <div>
-                            <span className="text-slate-500">Delivery:</span>
-                            <span className="ml-1">{quote.deliveryDays} days</span>
-                          </div>
-                        )}
-                        <div>
-                          <span className="text-slate-500">Submitted:</span>
-                          <span className="ml-1">{new Date(quote.submittedAt).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
           </motion.div>
         )}
 
@@ -764,7 +1052,7 @@ export default function VendorPortalPage() {
                   <tbody className="divide-y">
                     {orderHistory.orders?.map(order => (
                       <tr key={order.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-medium">PO-{order.orderNo?.slice(-8)}</td>
+                        <td className="px-4 py-3 font-medium">{order.po_number || order.orderNo || `PO-${order.id}`}</td>
                         <td className="px-4 py-3 text-slate-500">{new Date(order.createdAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${statusColors[order.status]}`}>
@@ -784,6 +1072,112 @@ export default function VendorPortalPage() {
                 </table>
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'deliveries' && (
+          <motion.div
+            key="deliveries"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {/* Deliveries Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Delivery Management</h2>
+                <p className="text-sm text-slate-500">
+                  {inTransitCount} order{inTransitCount !== 1 ? 's' : ''} in transit
+                </p>
+              </div>
+            </div>
+
+            {/* Active Deliveries */}
+            {orders.filter(o => ['Acknowledged', 'In_Transit'].includes(o.status)).length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <Truck className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+                <h3 className="text-lg font-medium text-slate-600 mb-2">No Active Deliveries</h3>
+                <p className="text-slate-500">Orders you've confirmed will appear here for delivery tracking</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-6">
+                {orders.filter(o => ['Acknowledged', 'In_Transit'].includes(o.status)).map(order => (
+                  <div key={order.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-slate-800">{order.po_number || order.orderNo || `PO-${order.id}`}</span>
+                        <div className="text-sm text-slate-500">{order.items?.length || 0} items</div>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[order.status]}`}>
+                        {order.status === 'In_Transit' ? 'In Transit' : order.status}
+                      </span>
+                    </div>
+                    
+                    <div className="p-4 space-y-4">
+                      {/* Delivery Progress */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              order.status === 'In_Transit' ? 'bg-blue-600 w-2/3' : 'bg-amber-500 w-1/3'
+                            }`} 
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Expected Delivery */}
+                      {order.expectedDelivery && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-slate-600">
+                            Expected: {new Date(order.expectedDelivery).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Order Value */}
+                      <div className="flex items-center gap-2 text-sm">
+                        <DollarSign className="w-4 h-4 text-slate-400" />
+                        <span className="text-slate-600 font-medium">
+                          ₹{Number(order.totalAmount).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      
+                      {/* Update Delivery Button */}
+                      <button
+                        onClick={() => { setSelectedOrder(order); setShowDeliveryModal(true); }}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                      >
+                        <Truck className="w-4 h-4" /> Update Delivery Status
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Completed Deliveries Summary */}
+            {orders.filter(o => o.status === 'Completed').length > 0 && (
+              <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-4">
+                <h3 className="font-semibold text-emerald-800 flex items-center gap-2 mb-3">
+                  <CheckCircle className="w-5 h-5" />
+                  Completed Deliveries ({orders.filter(o => o.status === 'Completed').length})
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {orders.filter(o => o.status === 'Completed').slice(0, 5).map(order => (
+                    <span key={order.id} className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm">
+                      {order.po_number || order.orderNo || `PO-${order.id}`}
+                    </span>
+                  ))}
+                  {orders.filter(o => o.status === 'Completed').length > 5 && (
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm">
+                      +{orders.filter(o => o.status === 'Completed').length - 5} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -915,16 +1309,77 @@ export default function VendorPortalPage() {
                 <Edit3 className="w-6 h-6 text-amber-600" />
                 Request Changes
               </h3>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">What changes do you need? *</label>
-                <textarea
-                  value={actionMessage}
-                  onChange={(e) => setActionMessage(e.target.value)}
-                  placeholder="Describe the changes you need (pricing, quantities, terms, etc.)..."
-                  rows={4}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  required
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Requested Changes *</label>
+                  <textarea
+                    value={actionMessage}
+                    onChange={(e) => setActionMessage(e.target.value)}
+                    placeholder="Describe required changes in quantity, delivery, or terms..."
+                    rows={3}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Reason *</label>
+                  <textarea
+                    value={changeReason}
+                    onChange={(e) => setChangeReason(e.target.value)}
+                    placeholder="Why is this change needed?"
+                    rows={2}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Requested Delivery</label>
+                    <input
+                      type="date"
+                      value={requestedDeliveryDate}
+                      onChange={(e) => setRequestedDeliveryDate(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Requested Terms</label>
+                    <input
+                      type="text"
+                      value={requestedTerms}
+                      onChange={(e) => setRequestedTerms(e.target.value)}
+                      placeholder="e.g., Net 45"
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+                {requestItems.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Requested Item Changes</label>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {requestItems.map((item, index) => (
+                        <div key={`${item.productId}-${index}`} className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-6 text-xs text-slate-600 truncate">{item.productName}</div>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantityOrdered}
+                            onChange={(e) => updateRequestItem(index, 'quantityOrdered', e.target.value)}
+                            className="col-span-3 px-2 py-1 text-sm border rounded-md"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.priceEach}
+                            onChange={(e) => updateRequestItem(index, 'priceEach', e.target.value)}
+                            className="col-span-3 px-2 py-1 text-sm border rounded-md"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex gap-3 mt-6">
                 <button onClick={() => setShowChangesModal(false)} className="flex-1 px-4 py-2 border rounded-lg hover:bg-slate-50">
@@ -932,7 +1387,7 @@ export default function VendorPortalPage() {
                 </button>
                 <button 
                   onClick={handleRequestChanges}
-                  disabled={!actionMessage || actionMessage.length < 10}
+                  disabled={!actionMessage || actionMessage.length < 10 || !changeReason || changeReason.length < 5}
                   className="flex-1 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50"
                 >
                   Submit Request

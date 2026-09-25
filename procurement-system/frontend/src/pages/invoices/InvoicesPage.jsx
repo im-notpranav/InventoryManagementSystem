@@ -96,7 +96,7 @@ export default function InvoicesPage() {
                   <select value={form.orderId} onChange={e => handleSelectOrder(e.target.value)}
                     className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">Select order...</option>
-                    {orders.map(o => <option key={o.id} value={o.id}>{o.orderNo} — {o.vendor?.name}</option>)}
+                    {orders.map(o => <option key={o.id} value={o.id}>{o.po_number || o.orderNo} — {o.vendor?.name}</option>)}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">

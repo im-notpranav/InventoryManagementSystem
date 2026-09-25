@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InventBot - Admin Login</title>
+    <style>
+        /* ==========================================================================
+           ROOT VARIABLES & RESET
+           ========================================================================== */
+        :root {
+            --bg-mesh-1: #060b19;
+            --bg-mesh-2: #140b2e;
+            --bg-mesh-3: #082236;
+            
+            --brand-primary: #00e5ff;
+            --brand-secondary: #ff0055;
+            
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: rgba(0, 0, 0, 0.5);
+            
+            --text-main: #ffffff;
+            --text-muted: rgba(255, 255, 255, 0.6);
+            --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(-45deg, var(--bg-mesh-1), var(--bg-mesh-2), var(--bg-mesh-3));
+            background-size: 400% 400%;
+            animation: gradient-shift 15s ease infinite;
+            overflow: hidden;
+            color: var(--text-main);
+            padding: 1.5rem;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* ==========================================================================
+           LAYOUT & GLASSMORPHISM CARD
+           ========================================================================== */
+        .login-container {
+            width: 100%;
+            max-width: 1100px;
+            display: flex;
+            background: var(--glass-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: 0 40px 80px var(--glass-shadow), inset 0 1px 0 rgba(255,255,255,0.1);
+            position: relative;
+            z-index: 10;
+            overflow: hidden;
+        }
+
+        .mascot-section {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.2); 
+            position: relative;
+            padding: 2rem;
+            min-height: 500px;
+        }
+
+        .form-section {
+            flex: 1;
+            padding: 4rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        @media (max-width: 850px) {
+            .login-container { flex-direction: column; }
+            .mascot-section { min-height: 250px; padding: 1rem; }
+            .form-section { padding: 2.5rem; }
+        }
+
+        /* ==========================================================================
+           FORM TYPOGRAPHY & ELEMENTS
+           ========================================================================== */
+        .brand-header {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            background: linear-gradient(to right, #fff, var(--brand-primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }
+
+        .brand-subheader {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--brand-primary);
+            margin-bottom: 2.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 1.75rem;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 1.25rem 1rem 0.5rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .input-group input:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .input-group input:focus {
+            border-color: var(--brand-primary);
+            box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .input-group label {
+            position: absolute;
+            left: 1rem;
+            top: 1rem;
+            color: var(--text-muted);
+            pointer-events: none;
+            transition: all 0.3s ease;
+            transform-origin: left top;
+            font-weight: 500;
+        }
+
+        /* Floating label mechanics */
+        .input-group input:focus ~ label,
+        .input-group input:not(:placeholder-shown) ~ label {
+            transform: translateY(-0.55rem) scale(0.75);
+            color: var(--brand-primary);
+        }
+
+        /* Password Toggle Icon */
+        .toggle-password {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.3s ease;
+        }
+
+        .toggle-password:hover { color: #fff; }
+        .toggle-password svg { width: 20px; height: 20px; }
+
+        /* Helpers Row (Checkbox & Forgot Password) */
+        .form-helpers {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            font-size: 0.9rem;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: color 0.3s;
+        }
+        .checkbox-group:hover { color: #fff; }
+
+        .checkbox-group input {
+            accent-color: var(--brand-primary);
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .forgot-link {
+            color: var(--brand-primary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: text-shadow 0.3s;
+        }
+        .forgot-link:hover {
+            text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+        }
+
+        /* Auth Button */
+        .auth-btn {
+            width: 100%;
+            padding: 1rem;
+            background: transparent;
+            border: 2px solid var(--brand-primary);
+            border-radius: 12px;
+            color: var(--brand-primary);
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .auth-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--brand-primary);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.4s ease;
+            z-index: 0;
+        }
+
+        .auth-btn:hover {
+            color: #060b19;
+            box-shadow: 0 10px 25px rgba(0, 229, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .auth-btn:hover::before {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        .auth-btn span { position: relative; z-index: 1; }
+
+        /* ==========================================================================
+           ROBOT MASCOT ANIMATIONS & SVG STYLING
+           ========================================================================== */
+        
+        .bot-wrapper {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* Base levitation */
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15px); }
+        }
+
+        #inventbot-svg {
+            width: 100%;
+            max-width: 350px;
+            overflow: visible;
+        }
+
+        /* Robot Parts Baseline Transitions */
+        #bot-head, #bot-hand-l, #bot-hand-r, #bot-antenna {
+            transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform-origin: center;
+        }
+        
+        #bot-eye-l, #bot-eye-r {
+            transition: transform 0.2s ease, opacity 0.2s ease;
+            transform-origin: center;
+        }
+
+        #bot-mouth, #bot-mouth-happy {
+            transition: opacity 0.3s ease;
+        }
+
+        #bot-thumb {
+            transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            opacity: 0;
+            transform: scale(0.5) translateY(20px);
+        }
+
+        /* --- Global Blink Animation --- */
+        @keyframes blink {
+            0%, 96%, 98%, 100% { transform: scaleY(1); }
+            97%, 99% { transform: scaleY(0.1); }
+        }
+        .bot-wrapper:not(.is-peeking) #bot-eye-l,
+        .bot-wrapper:not(.is-privacy) #bot-eye-r {
+            animation: blink 6s infinite;
+            transform-box: fill-box;
+            transform-origin: center;
+        }
+
+        /* --- STATE: EMAIL TYPING --- */
+        .bot-wrapper.is-typing #bot-head {
+            transform: translateY(10px) rotateX(-15deg);
+        }
+        .bot-wrapper.is-typing #bot-hand-l {
+            animation: type-l 0.4s ease alternate infinite;
+        }
+        .bot-wrapper.is-typing #bot-hand-r {
+            animation: type-r 0.4s ease alternate infinite 0.2s;
+        }
+        .bot-wrapper.is-typing #antenna-glow {
+            animation: pulse-antenna 0.2s alternate infinite;
+        }
+
+        @keyframes type-l {
+            0% { transform: translate(25px, -30px); }
+            100% { transform: translate(35px, -15px); }
+        }
+        @keyframes type-r {
+            0% { transform: translate(-25px, -30px); }
+            100% { transform: translate(-35px, -15px); }
+        }
+        @keyframes pulse-antenna {
+            0% { fill: var(--brand-secondary); filter: drop-shadow(0 0 5px var(--brand-secondary)); }
+            100% { fill: #fff; filter: drop-shadow(0 0 15px #fff); }
+        }
+
+        /* --- STATE: PASSWORD PRIVACY --- */
+        .bot-wrapper.is-privacy #bot-hand-l {
+            /* Moves hand over left eye */
+            transform: translate(65px, -115px) rotate(45deg);
+        }
+        .bot-wrapper.is-privacy #bot-hand-r {
+            /* Moves hand over right eye */
+            transform: translate(-65px, -115px) rotate(-45deg);
+        }
+        .bot-wrapper.is-privacy #bot-head {
+            transform: scale(0.98) translateY(5px);
+        }
+
+        /* --- STATE: PEEKING (Eye toggled during password) --- */
+        .bot-wrapper.is-peeking #bot-hand-l {
+            /* Pulls left hand down slightly to peek */
+            transform: translate(40px, -85px) rotate(20deg);
+        }
+        .bot-wrapper.is-peeking #bot-hand-r {
+            /* Keeps right hand covered */
+            transform: translate(-65px, -115px) rotate(-45deg);
+        }
+        .bot-wrapper.is-peeking #bot-eye-l {
+            /* Squints the peeking eye */
+            transform: scaleY(0.4) scaleX(1.2);
+            transform-box: fill-box;
+            opacity: 0.8;
+            animation: none; /* Stops blinking while peeking */
+        }
+
+        /* --- STATE: SUBMIT HOVER (Success/Happy) --- */
+        .bot-wrapper.is-success #bot-head {
+            transform: translateY(-5px);
+        }
+        .bot-wrapper.is-success #bot-mouth { opacity: 0; }
+        .bot-wrapper.is-success #bot-mouth-happy { opacity: 1; }
+        
+        .bot-wrapper.is-success #bot-eye-l,
+        .bot-wrapper.is-success #bot-eye-r {
+            /* Optional: Turn eyes into arcs/carets for smiling */
+            transform: scaleY(0.8);
+            transform-box: fill-box;
+        }
+
+        .bot-wrapper.is-success #bot-hand-r {
+            /* Move arm up for thumbs up */
+            transform: translate(15px, -60px) rotate(-15deg);
+        }
+        .bot-wrapper.is-success #bot-hand-r-default { opacity: 0; }
+        .bot-wrapper.is-success #bot-thumb { 
+            opacity: 1; 
+            transform: scale(1) translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <main class="login-container">
+        
+        <!-- LEFT SIDE: Interactive Mascot -->
+        <section class="mascot-section" aria-hidden="true">
+            <div class="bot-wrapper" id="bot-wrapper">
+                <svg viewBox="0 0 400 400" id="inventbot-svg" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <!-- Gradients -->
+                        <linearGradient id="armor-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+                            <stop offset="100%" stop-color="#8a9baf" stop-opacity="0.7" />
+                        </linearGradient>
+                        
+                        <linearGradient id="body-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#141e30" stop-opacity="0.8" />
+                            <stop offset="100%" stop-color="#0b101c" stop-opacity="0.9" />
+                        </linearGradient>
+
+                        <linearGradient id="visor-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#040b16" />
+                            <stop offset="100%" stop-color="#0a192f" />
+                        </linearGradient>
+
+                        <!-- Glow Effects -->
+                        <filter id="glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="4" result="blur" />
+                            <feMerge>
+                                <feMergeNode in="blur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+
+                        <filter id="glow-pink" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="3" result="blur" />
+                            <feMerge>
+                                <feMergeNode in="blur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+
+                    <!-- Drone Body/Core (Hovering base) -->
+                    <g id="bot-body">
+                        <!-- Holographic exhaust/thrust ring -->
+                        <ellipse cx="200" cy="310" rx="40" ry="10" fill="none" stroke="var(--brand-primary)" stroke-width="2" filter="url(#glow-cyan)" opacity="0.5">
+                            <animate attributeName="ry" values="10; 12; 10" dur="2s" repeatCount="indefinite"/>
+                            <animate attributeName="opacity" values="0.5; 0.8; 0.5" dur="2s" repeatCount="indefinite"/>
+                        </ellipse>
+                        <!-- Main Chassis -->
+                        <path d="M140 260 Q200 330 260 260 L240 180 L160 180 Z" fill="url(#body-grad)" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+                        <!-- Chassis details -->
+                        <line x1="170" y1="220" x2="230" y2="220" stroke="rgba(255,255,255,0.1)" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="180" y1="240" x2="220" y2="240" stroke="rgba(255,255,255,0.1)" stroke-width="2" stroke-linecap="round"/>
+                        <!-- Power Core -->
+                        <circle cx="200" cy="200" r="15" fill="#040b16" stroke="var(--brand-primary)" stroke-width="2"/>
+                        <circle cx="200" cy="200" r="8" fill="var(--brand-primary)" filter="url(#glow-cyan)"/>
+                    </g>
+
+                    <!-- Head Assembly -->
+                    <g id="bot-head">
+                        <!-- Antenna -->
+                        <g id="bot-antenna">
+                            <line x1="200" y1="90" x2="200" y2="45" stroke="#8a9baf" stroke-width="4" stroke-linecap="round"/>
+                            <circle id="antenna-glow" cx="200" cy="45" r="7" fill="var(--brand-secondary)" filter="url(#glow-pink)"/>
+                        </g>
+
+                        <!-- Outer Helmet -->
+                        <rect x="110" y="90" width="180" height="110" rx="50" fill="url(#armor-grad)" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
+                        <!-- Ear nodes -->
+                        <rect x="95" y="125" width="20" height="40" rx="8" fill="#141e30"/>
+                        <rect x="285" y="125" width="20" height="40" rx="8" fill="#141e30"/>
+
+                        <!-- Glass Visor -->
+                        <rect x="125" y="105" width="150" height="70" rx="30" fill="url(#visor-grad)" stroke="rgba(0,229,255,0.2)" stroke-width="2"/>
+                        <!-- Visor reflection line -->
+                        <path d="M 135 125 Q 200 115 265 125" stroke="rgba(255,255,255,0.1)" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+                        <!-- Eyes -->
+                        <g id="bot-eyes">
+                            <circle id="bot-eye-l" cx="165" cy="140" r="12" fill="var(--brand-primary)" filter="url(#glow-cyan)"/>
+                            <circle id="bot-eye-r" cx="235" cy="140" r="12" fill="var(--brand-primary)" filter="url(#glow-cyan)"/>
+                        </g>
+
+                        <!-- Mouth (Neutral) -->
+                        <path id="bot-mouth" d="M 190 160 L 210 160" stroke="var(--brand-primary)" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+                        <!-- Mouth (Happy) - Hidden by default -->
+                        <path id="bot-mouth-happy" d="M 185 155 Q 200 170 215 155" stroke="var(--brand-primary)" stroke-width="4" fill="none" stroke-linecap="round" opacity="0" filter="url(#glow-cyan)"/>
+                    </g>
+
+                    <!-- Left Hand (Floating) -->
+                    <g id="bot-hand-l">
+                        <g id="bot-hand-l-default">
+                            <!-- Metal cuff -->
+                            <rect x="90" y="240" width="30" height="45" rx="15" fill="url(#armor-grad)"/>
+                            <!-- Energy palm -->
+                            <circle cx="105" cy="240" r="12" fill="var(--brand-secondary)" filter="url(#glow-pink)" opacity="0.8"/>
+                        </g>
+                    </g>
+
+                    <!-- Right Hand (Floating) -->
+                    <g id="bot-hand-r">
+                        <!-- Default Hand Shape -->
+                        <g id="bot-hand-r-default">
+                            <rect x="280" y="240" width="30" height="45" rx="15" fill="url(#armor-grad)"/>
+                            <circle cx="295" cy="240" r="12" fill="var(--brand-secondary)" filter="url(#glow-pink)" opacity="0.8"/>
+                        </g>
+                        
+                        <!-- Thumbs Up Shape (Hidden by default, shown on Submit Hover) -->
+                        <g id="bot-thumb">
+                            <!-- Fist -->
+                            <rect x="275" y="240" width="40" height="35" rx="10" fill="url(#armor-grad)"/>
+                            <!-- Thumb sticking up -->
+                            <rect x="280" y="215" width="14" height="30" rx="7" fill="url(#armor-grad)" stroke="rgba(255,255,255,0.2)"/>
+                            <circle cx="295" cy="255" r="8" fill="var(--brand-primary)" filter="url(#glow-cyan)" opacity="0.9"/>
+                        </g>
+                    </g>
+                </svg>
+            </div>
+        </section>
+
+        <!-- RIGHT SIDE: Login Form -->
+        <section class="form-section">
+            <header>
+                <h1 class="brand-header">InventBot</h1>
+                <p class="brand-subheader">Intelligent Inventory Management</p>
+            </header>
+
+            <form id="login-form">
+                
+                <!-- Email Input -->
+                <div class="input-group">
+                    <input type="email" id="email" name="email" required placeholder=" " autocomplete="off">
+                    <label for="email">Corporate Email</label>
+                </div>
+
+                <!-- Password Input -->
+                <div class="input-group">
+                    <input type="password" id="password" name="password" required placeholder=" " autocomplete="off">
+                    <label for="password">Security Key (Password)</label>
+                    <button type="button" class="toggle-password" id="toggle-pwd" aria-label="Toggle password visibility">
+                        <!-- Default Eye (Closed/Hidden) -->
+                        <svg id="icon-eye" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Helpers -->
+                <div class="form-helpers">
+                    <label class="checkbox-group">
+                        <input type="checkbox" id="remember">
+                        <span>Remember securely</span>
+                    </label>
+                    <a href="#" class="forgot-link">Systems Offline? (Forgot)</a>
+                </div>
+
+                <!-- Submit -->
+                <button type="submit" class="auth-btn" id="submit-btn" aria-label="Authenticate Input">
+                    <span>Initiate Authentication</span>
+                </button>
+
+            </form>
+        </section>
+    </main>
+
+    <!-- ==========================================================================
+         JAVASCRIPT INTERACTIONS
+         ========================================================================== -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const botWrapper = document.getElementById('bot-wrapper');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+            const toggleBtn = document.getElementById('toggle-pwd');
+            const eyeIconObj = document.getElementById('icon-eye');
+            const submitBtn = document.getElementById('submit-btn');
+            
+            // --- SVGs for the Toggle Icon ---
+            const svgEyeOpen = `
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            `;
+            const svgEyeClosed = `
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+            `;
+
+            // Helper to clean all interaction states
+            const clearStates = () => {
+                botWrapper.classList.remove('is-typing', 'is-privacy', 'is-peeking', 'is-success');
+            };
+
+            // 1. Email Typing Interaction
+            emailInput.addEventListener('focus', () => {
+                clearStates();
+                botWrapper.classList.add('is-typing');
+            });
+            emailInput.addEventListener('blur', clearStates);
+
+            // 2. Password Privacy Interaction
+            passwordInput.addEventListener('focus', () => {
+                clearStates();
+                // Check if password is currently hidden or visible
+                if (passwordInput.type === 'password') {
+                    botWrapper.classList.add('is-privacy');
+                } else {
+                    botWrapper.classList.add('is-peeking');
+                }
+            });
+            passwordInput.addEventListener('blur', clearStates);
+
+            // 3. Password View Toggle
+            toggleBtn.addEventListener('click', () => {
+                // Toggle input type
+                const isPassword = passwordInput.type === 'password';
+                passwordInput.type = isPassword ? 'text' : 'password';
+                
+                // Toggle Icon
+                eyeIconObj.innerHTML = isPassword ? svgEyeOpen : svgEyeClosed;
+
+                // If currently focused on the password field, instantly update bot state
+                if (document.activeElement === passwordInput) {
+                    clearStates();
+                    if (isPassword) {
+                        botWrapper.classList.add('is-peeking'); // Transitioning TO text
+                    } else {
+                        botWrapper.classList.add('is-privacy'); // Transitioning TO dots
+                    }
+                }
+            });
+
+            // 4. Submit Button Hover (Thumbs Up & Smile)
+            submitBtn.addEventListener('mouseenter', () => {
+                // Only trigger success hover if user isn't actively working in inputs
+                if (document.activeElement !== emailInput && document.activeElement !== passwordInput) {
+                    clearStates();
+                    botWrapper.classList.add('is-success');
+                }
+            });
+            submitBtn.addEventListener('mouseleave', () => {
+                botWrapper.classList.remove('is-success');
+            });
+
+            // 5. Form Submit behavior (mocked for demo)
+            document.getElementById('login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                // Play final success animation sequence
+                clearStates();
+                botWrapper.classList.add('is-success');
+                
+                // Change button state
+                const span = submitBtn.querySelector('span');
+                const origText = span.innerText;
+                span.innerText = "Access Granted...";
+                
+                // Simulate redirect timer
+                setTimeout(() => {
+                    span.innerText = origText;
+                    clearStates();
+                }, 2000);
+            });
+        });
+    </script>
+</body>
+</html>

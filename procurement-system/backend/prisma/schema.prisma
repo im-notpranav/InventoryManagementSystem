@@ -7,485 +7,447 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── RBAC ───────────────────────────────────────────
 model Role {
-  id    Int    @id @default(autoincrement())
-  name  String @unique // Admin, Manager, User, Vendor
-  users User[]
+  role_id     Int    @id @default(autoincrement())
+  role_name   String @unique
+  permissions Json
+  users       User[]
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
+  user_id      Int      @id @default(autoincrement())
+  role_id      Int
   name         String
   email        String   @unique
   password     String
-  phone        String?
   department   String?
-  isActive     Boolean  @default(true)
-  roleId       Int
-  role         Role     @relation(fields: [roleId], references: [id])
-  vendorId     Int?     @unique  // Links user to vendor account (for vendor role users)
-  vendor       Vendor?  @relation(fields: [vendorId], references: [id])
-  refreshToken String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  purchaseRequests PurchaseRequest[]
-  notifications    Notification[]
-  auditLogs        AuditLog[]
-  chatMessages     ChatMessage[]
-  returnOrders     ReturnOrder[]
-
-  @@index([email])
-  @@index([roleId])
+  phone        String?
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  role                 Role                    @relation(fields: [role_id], references: [role_id])
+  vendor               Vendor?
+  purchase_requests    PurchaseRequest[]
+  approval_logs        ApprovalLog[]
+  po_created           PurchaseOrder[]         @relation("POCreator")
+  goods_receipts       GoodsReceipt[]          @relation("GRReceiver")
+  reviewed_quotes      VendorQuoteSubmission[] @relation("QuoteReviewer")
+  created_work_orders  WorkOrder[]             @relation("WOCreator")
+  gate_entries         GateEntry[]             @relation("GateWatchman")
+  uploaded_bills       BillingDocument[]       @relation("BillUploader")
+  watchman_bills       BillingDocument[]       @relation("BillWatchman")
+  admin_bills          BillingDocument[]       @relation("BillAdmin")
+  accountant_bills     BillingDocument[]       @relation("BillAccountant")
+  return_orders        ReturnOrder[]           @relation("ReturnRaiser")
+  rfqs_sent            VendorRFQ[]             @relation("RFQSender")
+  audit_logs           AuditLog[]
+  notifications        Notification[]
 }
 
-// ─── VENDORS ────────────────────────────────────────
 model Vendor {
-  id              Int      @id @default(autoincrement())
-  name            String
-  email           String   @unique
-  phone           String?
-  address         String?
-  gstNumber       String?
-  rating          Float    @default(0)
-  status          String   @default("Active") // Active, Inactive, Blocked
-  isBlacklisted   Boolean  @default(false)
-  performanceScore Float?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  user           User?   // Link to user account for portal access
-  purchaseOrders PurchaseOrder[]
-  products       ProductVendor[]
-  quotations     Quotation[]
-  vendorQuotes   VendorQuote[]
-  portalActions  VendorPortalAction[]
-  rfqInvitations RFQVendor[]  // RFQs this vendor is invited to
-
-  @@index([status])
+  vendor_id         Int      @id @default(autoincrement())
+  user_id           Int?     @unique
+  vendor_name       String
+  company_name      String?
+  email             String
+  phone             String?
+  address           String?
+  rating            Float?
+  performance_score Float?
+  is_blacklisted    Boolean  @default(false)
+  is_approved       Boolean  @default(true)
+  status            String   @default("active")
+  created_at        DateTime @default(now())
+  user              User?                   @relation(fields: [user_id], references: [user_id])
+  quote_submissions VendorQuoteSubmission[]
+  vendor_rfqs       VendorRFQ[]
+  vendor_quotes     VendorQuote[]
+  work_orders       WorkOrder[]
+  purchase_orders   PurchaseOrder[]
+  portal_actions    VendorPortalAction[]
+  warranties        Warranty[]
 }
 
-// ─── PRODUCTS & CATEGORIES ──────────────────────────
 model Category {
-  id       Int       @id @default(autoincrement())
-  name     String    @unique
-  products Product[]
+  category_id Int       @id @default(autoincrement())
+  name        String
+  description String?
+  products    Product[]
 }
 
 model Product {
-  id          Int      @id @default(autoincrement())
-  name        String
-  sku         String   @unique
-  description String?
-  unit        String   @default("pcs") // pcs, kg, liters, etc.
-  price       Float    @default(0)
-  categoryId  Int?
-  category    Category? @relation(fields: [categoryId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  inventory            Inventory?
-  purchaseRequestItems PurchaseRequestItem[]
-  orderItems           OrderItem[]
-  warranties           Warranty[]
-  vendors              ProductVendor[]
-  quotationItems       QuotationItem[]
-
-  @@index([sku])
-  @@index([categoryId])
+  product_id        Int               @id @default(autoincrement())
+  category_id       Int
+  sku               String            @unique
+  name              String
+  description       String?
+  unit              String
+  unit_price        Decimal
+  is_active         Boolean           @default(true)
+  category          Category          @relation(fields: [category_id], references: [category_id])
+  inventory         Inventory[]
+  purchase_requests PurchaseRequest[]
+  order_items       OrderItem[]
+  warranties        Warranty[]
+  subscriptions     Subscription[]
+  request_items     PurchaseRequestItem[]
 }
 
-model ProductVendor {
-  id        Int     @id @default(autoincrement())
-  productId Int
-  vendorId  Int
-  price     Float   @default(0)
-  product   Product @relation(fields: [productId], references: [id])
-  vendor    Vendor  @relation(fields: [vendorId], references: [id])
-
-  @@unique([productId, vendorId])
+model Warehouse {
+  warehouse_id  Int            @id @default(autoincrement())
+  name          String
+  location      String
+  manager_name  String?
+  inventory     Inventory[]
+  purchase_requests PurchaseRequest[]
+  goods_receipts GoodsReceipt[]
 }
 
-// ─── INVENTORY ──────────────────────────────────────
 model Inventory {
-  id           Int      @id @default(autoincrement())
-  productId    Int      @unique
-  product      Product  @relation(fields: [productId], references: [id])
-  quantity     Int      @default(0)
-  reorderPoint Int      @default(10)
-  minimumStock Int      @default(5)
-  location     String?
-  updatedAt    DateTime @updatedAt
-
-  @@index([productId])
+  inventory_id       Int       @id @default(autoincrement())
+  product_id         Int
+  warehouse_id       Int
+  quantity_available Int       @default(0)
+  reorder_point      Int
+  min_stock          Int
+  max_stock          Int
+  last_updated       DateTime  @updatedAt
+  product            Product   @relation(fields: [product_id], references: [product_id])
+  warehouse          Warehouse @relation(fields: [warehouse_id], references: [warehouse_id])
+  @@unique([product_id, warehouse_id])
 }
 
-// ─── PURCHASE REQUESTS ──────────────────────────────
 model PurchaseRequest {
-  id            Int       @id @default(autoincrement())
-  requestNo     String    @unique @default(cuid())
-  userId        Int
-  user          User      @relation(fields: [userId], references: [id])
-  status        String    @default("Pending") // Pending, Approved, Rejected, RFQ_Sent, PO_Created
-  priority      String    @default("Medium")  // Low, Medium, High, Urgent
-  requiredDate  DateTime?
-  estimatedCost Decimal?
-  budgetCode    String?
-  notes         String?
-  approvedAt    DateTime?
-  rejectedAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  items          PurchaseRequestItem[]
-  purchaseOrders PurchaseOrder[]
-  rfqs           RFQ[]
-  vendorQuotes   VendorQuote[]
-
-  @@index([userId])
-  @@index([status])
+  request_id     Int       @id @default(autoincrement())
+  pr_number      String?   @unique
+  requested_by   Int
+  product_id     Int?
+  warehouse_id   Int?
+  quantity       Int?      @default(1)
+  justification  String?
+  priority       String    @default("medium")
+  required_date  DateTime?
+  estimated_cost Decimal?
+  budget_code    String?
+  status         String    @default("pending")
+  requested_at   DateTime  @default(now())
+  admin_remarks  String?
+  user              User                    @relation(fields: [requested_by], references: [user_id])
+  product           Product?                @relation(fields: [product_id], references: [product_id])
+  warehouse         Warehouse?              @relation(fields: [warehouse_id], references: [warehouse_id])
+  approval_logs     ApprovalLog[]
+  vendor_rfqs       VendorRFQ[]
+  vendor_quotes     VendorQuote[]
+  quote_submissions VendorQuoteSubmission[]
+  work_orders       WorkOrder[]
+  purchase_order    PurchaseOrder?
+  items             PurchaseRequestItem[]
 }
 
 model PurchaseRequestItem {
-  id          Int             @id @default(autoincrement())
-  requestId   Int
-  request     PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  productId   Int?            // Optional - null for custom product requests
-  product     Product?        @relation(fields: [productId], references: [id])
-  quantity    Int
-  notes       String?
-  // Custom product fields (used when productId is null)
-  customProductName  String?  // Name of the new product being requested
-  customProductDesc  String?  // Description of what is needed
-  customEstimatedPrice Float? // Estimated price if known
-
-  @@index([requestId])
+  item_id        Int     @id @default(autoincrement())
+  request_id     Int
+  product_id     Int
+  quantity       Int
+  estimated_cost Decimal?
+  notes          String?
+  request        PurchaseRequest @relation(fields: [request_id], references: [request_id])
+  product        Product         @relation(fields: [product_id], references: [product_id])
 }
 
-// ─── REQUEST FOR QUOTATION (RFQ) ────────────────────
-model RFQ {
-  id          Int      @id @default(autoincrement())
-  rfqNo       String   @unique @default(cuid())
-  requestId   Int
-  request     PurchaseRequest @relation(fields: [requestId], references: [id])
-  status      String   @default("Open") // Open, Closed, Cancelled
-  deadline    DateTime?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  quotations  Quotation[]
-  vendors     RFQVendor[]  // Many-to-many: which vendors are invited
-
-  @@index([requestId])
-  @@index([status])
+model ApprovalLog {
+  log_id      Int             @id @default(autoincrement())
+  request_id  Int
+  approver_id Int
+  action      String
+  comments    String?
+  acted_at    DateTime        @default(now())
+  request     PurchaseRequest @relation(fields: [request_id], references: [request_id])
+  approver    User            @relation(fields: [approver_id], references: [user_id])
 }
 
-// RFQ-Vendor relationship (which vendors are invited to quote)
-model RFQVendor {
-  id        Int      @id @default(autoincrement())
-  rfqId     Int
-  rfq       RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  vendorId  Int
-  vendor    Vendor   @relation(fields: [vendorId], references: [id])
-  status    String   @default("Invited") // Invited, Viewed, Quoted, Declined
-  invitedAt DateTime @default(now())
-  viewedAt  DateTime?
-  respondedAt DateTime?
-
-  @@unique([rfqId, vendorId])
-  @@index([rfqId])
-  @@index([vendorId])
+model VendorRFQ {
+  rfq_id     Int             @id @default(autoincrement())
+  request_id Int
+  vendor_id  Int
+  sent_by    Int
+  sent_at    DateTime        @default(now())
+  status     String          @default("pending")
+  request    PurchaseRequest @relation(fields: [request_id], references: [request_id])
+  vendor     Vendor          @relation(fields: [vendor_id], references: [vendor_id])
+  sender     User            @relation("RFQSender", fields: [sent_by], references: [user_id])
 }
 
-model Quotation {
-  id              Int      @id @default(autoincrement())
-  rfqId           Int
-  rfq             RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  vendorId        Int
-  vendor          Vendor   @relation(fields: [vendorId], references: [id])
-  status          String   @default("Submitted") // Submitted, Selected, Rejected
-  totalAmount     Float    @default(0)
-  deliveryDays    Int?     // Estimated delivery in days
-  validUntil      DateTime?
-  terms           String?  // Payment/delivery terms
-  notes           String?
-  submittedAt     DateTime @default(now())
-
-  items           QuotationItem[]
-  purchaseOrders  PurchaseOrder[]
-
-  @@unique([rfqId, vendorId])
-  @@index([rfqId])
-  @@index([vendorId])
+model VendorQuote {
+  quote_id      Int             @id @default(autoincrement())
+  request_id    Int
+  vendor_id     Int
+  unit_price    Decimal
+  delivery_days Int?
+  validity_date DateTime?
+  notes         String?
+  is_selected   Boolean         @default(false)
+  resent_at     DateTime?
+  created_at    DateTime        @default(now())
+  request       PurchaseRequest @relation(fields: [request_id], references: [request_id])
+  vendor        Vendor          @relation(fields: [vendor_id], references: [vendor_id])
 }
 
-model QuotationItem {
-  id          Int       @id @default(autoincrement())
-  quotationId Int
-  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  productId   Int?
-  product     Product?  @relation(fields: [productId], references: [id])
-  // For custom products
-  customProductName String?
-  quantity    Int
-  unitPrice   Float
-  totalPrice  Float
-
-  @@index([quotationId])
+model VendorQuoteSubmission {
+  submission_id      Int             @id @default(autoincrement())
+  request_id         Int
+  vendor_id          Int
+  quotation_file_url String
+  proforma_file_url  String
+  quoted_price       Decimal
+  quoted_quantity    Int
+  validity_days      Int?
+  notes              String?
+  status             String          @default("pending")
+  admin_remarks      String?
+  submitted_at       DateTime        @default(now())
+  reviewed_at        DateTime?
+  reviewed_by        Int?
+  request    PurchaseRequest @relation(fields: [request_id], references: [request_id])
+  vendor     Vendor          @relation(fields: [vendor_id], references: [vendor_id])
+  reviewer   User?           @relation("QuoteReviewer", fields: [reviewed_by], references: [user_id])
+  work_order WorkOrder?
 }
 
-// ─── PURCHASE ORDERS ────────────────────────────────
 model PurchaseOrder {
-  id               Int      @id @default(autoincrement())
-  orderNo          String   @unique @default(cuid())
-  requestId        Int
-  request          PurchaseRequest @relation(fields: [requestId], references: [id])
-  quotationId      Int?     // Link to selected quotation
-  quotation        Quotation? @relation(fields: [quotationId], references: [id])
-  vendorId         Int
-  vendor           Vendor   @relation(fields: [vendorId], references: [id])
-  status           String   @default("Draft") // Draft, Sent, Acknowledged, Completed, Cancelled
-  totalAmount      Float    @default(0)
-  paymentTerms     String?  // Net 30, Net 60
-  shippingTerms    String?  // FOB, CIF
-  taxAmount        Decimal  @default(0)
-  sentToVendor     Boolean  @default(false)
-  sentAt           DateTime?
-  issuedAt         DateTime @default(now())
-  expectedDelivery DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  items          OrderItem[]
-  goodsReceipts  GoodsReceipt[]
-  invoices       Invoice[]
-  returnOrders   ReturnOrder[]
-  portalActions  VendorPortalAction[]
-
-  @@index([vendorId])
-  @@index([status])
+  order_id       Int       @id @default(autoincrement())
+  po_number      String?   @unique
+  vendor_id      Int
+  created_by     Int
+  request_id     Int?      @unique
+  status         String    @default("pending")
+  total_amount   Decimal
+  payment_terms  String?
+  shipping_terms String?
+  tax_amount     Decimal?  @default(0)
+  order_date     DateTime  @default(now())
+  expected_date  DateTime?
+  sent_to_vendor Boolean   @default(false)
+  sent_at        DateTime?
+  vendor         Vendor          @relation(fields: [vendor_id], references: [vendor_id])
+  creator        User            @relation("POCreator", fields: [created_by], references: [user_id])
+  request        PurchaseRequest? @relation(fields: [request_id], references: [request_id])
+  order_items    OrderItem[]
+  goods_receipts GoodsReceipt[]
+  invoice        Invoice?
+  return_orders  ReturnOrder[]
+  portal_actions VendorPortalAction[]
 }
 
 model OrderItem {
-  id              Int           @id @default(autoincrement())
-  orderId         Int
-  order           PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId       Int
-  product         Product       @relation(fields: [productId], references: [id])
-  quantityOrdered Int
-  priceEach       Float
-  quantityReceived Int          @default(0)
-
-  @@index([orderId])
+  item_id           Int           @id @default(autoincrement())
+  order_id          Int
+  product_id        Int
+  quantity_ordered  Int
+  unit_price        Decimal
+  quantity_received Int           @default(0)
+  expected_date     DateTime?
+  actual_date       DateTime?
+  order             PurchaseOrder @relation(fields: [order_id], references: [order_id])
+  product           Product       @relation(fields: [product_id], references: [product_id])
+  receipt_items     ReceiptItem[]
 }
 
-// ─── GOODS RECEIPTS ─────────────────────────────────
+model WorkOrder {
+  wo_id               Int       @id @default(autoincrement())
+  wo_number           String    @unique
+  submission_id       Int       @unique
+  request_id          Int
+  vendor_id           Int
+  created_by          Int
+  wo_file_url         String?
+  items_description   String
+  quantity            Int
+  agreed_price        Decimal
+  delivery_deadline   DateTime
+  terms               String?
+  status              String    @default("draft")
+  acknowledged_at     DateTime?
+  dispatched_at       DateTime?
+  tax_invoice_url     String?
+  tax_invoice_number  String?
+  expected_delivery   DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  submission  VendorQuoteSubmission @relation(fields: [submission_id], references: [submission_id])
+  request     PurchaseRequest       @relation(fields: [request_id], references: [request_id])
+  vendor      Vendor                @relation(fields: [vendor_id], references: [vendor_id])
+  creator     User                  @relation("WOCreator", fields: [created_by], references: [user_id])
+  gate_entry  GateEntry?
+}
+
 model GoodsReceipt {
-  id               Int           @id @default(autoincrement())
-  receiptNo        String        @unique @default(cuid())
-  orderId          Int
-  order            PurchaseOrder @relation(fields: [orderId], references: [id])
-  receivedBy       String?
-  notes            String?
-  inspectionStatus String?       // pending, passed, failed
-  rejectionReason  String?
-  receivedAt       DateTime      @default(now())
-
-  items GoodsReceiptItem[]
-
-  @@index([orderId])
+  receipt_id        Int           @id @default(autoincrement())
+  order_id          Int
+  received_by       Int
+  warehouse_id      Int
+  received_at       DateTime      @default(now())
+  notes             String?
+  inspection_status String?
+  rejection_reason  String?
+  order             PurchaseOrder @relation(fields: [order_id], references: [order_id])
+  receiver          User          @relation("GRReceiver", fields: [received_by], references: [user_id])
+  warehouse         Warehouse     @relation(fields: [warehouse_id], references: [warehouse_id])
+  receipt_items     ReceiptItem[]
 }
 
-model GoodsReceiptItem {
-  id               Int          @id @default(autoincrement())
-  receiptId        Int
-  receipt          GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  productId        Int
-  quantityReceived Int
-  condition        String       @default("Good") // Good, Damaged, Partial
-
-  @@index([receiptId])
+model ReceiptItem {
+  receipt_item_id   Int          @id @default(autoincrement())
+  receipt_id        Int
+  order_item_id     Int
+  quantity_received Int
+  condition         String       @default("good")
+  receipt           GoodsReceipt @relation(fields: [receipt_id], references: [receipt_id])
+  order_item        OrderItem    @relation(fields: [order_item_id], references: [item_id])
 }
 
-// ─── INVOICES ───────────────────────────────────────
+model GateEntry {
+  entry_id           Int       @id @default(autoincrement())
+  entry_number       String    @unique
+  wo_id              Int       @unique
+  recorded_by        Int
+  vehicle_number     String
+  driver_name        String
+  num_packages       Int
+  tax_invoice_number String
+  invoice_verified   Boolean   @default(false)
+  status             String    @default("pending")
+  block_reason       String?
+  gate_pass_issued   Boolean   @default(false)
+  entry_time         DateTime  @default(now())
+  wo               WorkOrder       @relation(fields: [wo_id], references: [wo_id])
+  watchman         User            @relation("GateWatchman", fields: [recorded_by], references: [user_id])
+  billing_document BillingDocument?
+}
+
+model BillingDocument {
+  doc_id                 Int       @id @default(autoincrement())
+  entry_id               Int       @unique
+  scanned_invoice_url    String?
+  uploaded_by            Int?
+  uploaded_at            DateTime?
+  watchman_confirmed     Boolean   @default(false)
+  watchman_confirmed_by  Int?
+  watchman_confirmed_at  DateTime?
+  admin_signed           Boolean   @default(false)
+  admin_signed_by        Int?
+  admin_signed_at        DateTime?
+  status                 String    @default("pending")
+  accountant_verified    Boolean   @default(false)
+  accountant_verified_by Int?
+  accountant_verified_at DateTime?
+  bill_released          Boolean   @default(false)
+  bill_released_at       DateTime?
+  accountant_remarks     String?
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+  entry           GateEntry @relation(fields: [entry_id], references: [entry_id])
+  uploader        User?     @relation("BillUploader",    fields: [uploaded_by],            references: [user_id])
+  watchman_user   User?     @relation("BillWatchman",    fields: [watchman_confirmed_by],  references: [user_id])
+  admin_user      User?     @relation("BillAdmin",       fields: [admin_signed_by],        references: [user_id])
+  accountant_user User?     @relation("BillAccountant",  fields: [accountant_verified_by], references: [user_id])
+}
+
 model Invoice {
-  id            Int           @id @default(autoincrement())
-  invoiceNo     String        @unique
-  orderId       Int
-  order         PurchaseOrder @relation(fields: [orderId], references: [id])
-  amount        Float
-  taxAmount     Float         @default(0)
-  totalAmount   Float
-  status        String        @default("Pending") // Pending, Paid, Overdue
-  invoiceDate   DateTime
-  dueDate       DateTime?
-  paidAt        DateTime?
-  createdAt     DateTime      @default(now())
-
-  payment       Payment?
-
-  @@index([orderId])
-  @@index([status])
+  invoice_id     Int           @id @default(autoincrement())
+  order_id       Int           @unique
+  invoice_number String
+  amount         Decimal
+  status         String        @default("pending")
+  invoice_date   DateTime
+  due_date       DateTime
+  order          PurchaseOrder @relation(fields: [order_id], references: [order_id])
+  payment        Payment?
 }
 
-// ─── WARRANTIES ─────────────────────────────────────
-model Warranty {
-  id          Int      @id @default(autoincrement())
-  productId   Int
-  product     Product  @relation(fields: [productId], references: [id])
-  serialNo    String?
-  provider    String?
-  startDate   DateTime
-  endDate     DateTime
-  terms       String?
-  status      String   @default("Active") // Active, Expired, Claimed
-  createdAt   DateTime @default(now())
-
-  @@index([productId])
-  @@index([endDate])
-}
-
-// ─── SUBSCRIPTIONS ─────────────────────────────────
-model Subscription {
-  id            Int      @id @default(autoincrement())
-  name          String
-  vendor        String?
-  type          String   @default("Software") // Software, Service, Support
-  startDate     DateTime
-  endDate       DateTime
-  renewalCost   Float    @default(0)
-  licenseCount  Int      @default(1)
-  autoRenew     Boolean  @default(false)
-  status        String   @default("Active") // Active, Expired, Cancelled
-  notes         String?
-  alertSent     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([endDate])
-  @@index([status])
-}
-
-// ─── NOTIFICATIONS ──────────────────────────────────
-model Notification {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  title     String
-  message   String
-  type      String   @default("info") // info, warning, success, error
-  isRead    Boolean  @default(false)
-  link      String?
-  createdAt DateTime @default(now())
-
-  @@index([userId, isRead])
-}
-
-// ─── AUDIT LOG ──────────────────────────────────────
-model AuditLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id])
-  action    String   // CREATE, UPDATE, DELETE, LOGIN, APPROVE, REJECT
-  entity    String   // User, Vendor, Product, PurchaseRequest, etc.
-  entityId  Int?
-  details   String?
-  ipAddress String?
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([entity])
-  @@index([createdAt])
-}
-
-// ─── CHATBOT ────────────────────────────────────────
-model ChatMessage {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  role      String   // user, assistant
-  content   String
-  metadata  String?  // JSON string for intent data
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-}
-
-// ─── BUDGET ─────────────────────────────────────────
-model Budget {
-  id             Int      @id @default(autoincrement())
-  department     String
-  fiscalYear     String
-  totalAmount    Decimal
-  spentAmount    Decimal  @default(0)
-  reservedAmount Decimal  @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-// ─── VENDOR QUOTE ───────────────────────────────────
-model VendorQuote {
-  id           Int       @id @default(autoincrement())
-  requestId    Int
-  vendorId     Int
-  unitPrice    Decimal
-  deliveryDays Int?
-  validityDate DateTime?
-  notes        String?
-  isSelected   Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  
-  request      PurchaseRequest @relation(fields: [requestId], references: [id])
-  vendor       Vendor          @relation(fields: [vendorId], references: [id])
-
-  @@index([requestId])
-  @@index([vendorId])
-}
-
-// ─── PAYMENT ────────────────────────────────────────
 model Payment {
-  id            Int      @id @default(autoincrement())
-  invoiceId     Int      @unique
-  amount        Decimal
-  paymentMethod String   // bank_transfer, check, card
-  transactionId String?
-  paymentDate   DateTime
-  notes         String?
-  
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  payment_id     Int      @id @default(autoincrement())
+  invoice_id     Int      @unique
+  amount         Decimal
+  payment_method String
+  transaction_id String?
+  payment_date   DateTime
+  notes          String?
+  invoice        Invoice  @relation(fields: [invoice_id], references: [invoice_id])
 }
 
-// ─── RETURN ORDER ───────────────────────────────────
 model ReturnOrder {
-  id         Int      @id @default(autoincrement())
-  orderId    Int
-  raisedBy   Int
-  reason     String
-  status     String   @default("pending")  // pending, approved, completed
-  creditNote String?
-  createdAt  DateTime @default(now())
-  
-  order      PurchaseOrder @relation(fields: [orderId], references: [id])
-  user       User          @relation(fields: [raisedBy], references: [id])
-
-  @@index([orderId])
-  @@index([raisedBy])
+  return_id   Int           @id @default(autoincrement())
+  order_id    Int
+  raised_by   Int
+  reason      String
+  status      String        @default("pending")
+  credit_note String?
+  created_at  DateTime      @default(now())
+  order       PurchaseOrder @relation(fields: [order_id], references: [order_id])
+  user        User          @relation("ReturnRaiser", fields: [raised_by], references: [user_id])
 }
 
-// ─── VENDOR PORTAL ACTION ───────────────────────────
 model VendorPortalAction {
-  id        Int      @id @default(autoincrement())
-  orderId   Int
-  vendorId  Int
-  action    String   // confirmed, rejected, change_requested
-  message   String?  // vendor's note or reason
-  createdAt DateTime @default(now())
-  
-  order     PurchaseOrder @relation(fields: [orderId], references: [id])
-  vendor    Vendor        @relation(fields: [vendorId], references: [id])
+  action_id  Int           @id @default(autoincrement())
+  order_id   Int
+  vendor_id  Int
+  action     String
+  message    String?
+  created_at DateTime      @default(now())
+  order      PurchaseOrder @relation(fields: [order_id], references: [order_id])
+  vendor     Vendor        @relation(fields: [vendor_id], references: [vendor_id])
+}
 
-  @@index([orderId])
-  @@index([vendorId])
+model Warranty {
+  warranty_id   Int      @id @default(autoincrement())
+  product_id    Int
+  vendor_id     Int
+  serial_number String?
+  start_date    DateTime
+  end_date      DateTime
+  notified      Boolean  @default(false)
+  product       Product  @relation(fields: [product_id], references: [product_id])
+  vendor        Vendor   @relation(fields: [vendor_id], references: [vendor_id])
+}
+
+model Subscription {
+  subscription_id Int      @id @default(autoincrement())
+  product_id      Int
+  service_name    String
+  expiry_date     DateTime
+  auto_renew      Boolean  @default(false)
+  notified        Boolean  @default(false)
+  product         Product  @relation(fields: [product_id], references: [product_id])
+}
+
+model AuditLog {
+  audit_id   Int      @id @default(autoincrement())
+  user_id    Int
+  table_name String
+  action     String
+  old_value  Json?
+  new_value  Json?
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [user_id])
+}
+
+model Notification {
+  notification_id Int      @id @default(autoincrement())
+  user_id         Int
+  type            String
+  message         String
+  is_read         Boolean  @default(false)
+  sent_at         DateTime @default(now())
+  user            User     @relation(fields: [user_id], references: [user_id])
+}
+
+model Budget {
+  budget_id       Int      @id @default(autoincrement())
+  department      String
+  fiscal_year     String
+  total_amount    Decimal
+  spent_amount    Decimal  @default(0)
+  reserved_amount Decimal  @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 }

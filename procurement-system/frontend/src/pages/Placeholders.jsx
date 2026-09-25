@@ -3,12 +3,12 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingCart, FileText, Warehouse, Receipt, Award, Bell, Users, Settings, Plus, CheckCircle, X, Clock, Filter } from 'lucide-react';
 import { purchaseRequestsApi, purchaseOrdersApi, goodsReceiptsApi, invoicesApi, warrantiesApi, notificationsApi, usersApi } from '../api/index.js';
-import useAuthStore from '../store/auth.store';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Purchase Requests ─────────────────────────────
 export function PurchaseRequestPage() {
   const [requests, setRequests] = useState([]);
-  const user = useAuthStore(s => s.user);
+  const { user } = useAuth();
   useEffect(() => { purchaseRequestsApi.getAll().then(r => r?.data && setRequests(r.data)).catch(() => {}); }, []);
   const statusStyle = { Pending: 'bg-amber-100 text-amber-700', Approved: 'bg-emerald-100 text-emerald-700', Rejected: 'bg-red-100 text-red-700' };
   const priorityStyle = { Low: 'text-slate-500', Medium: 'text-blue-600', High: 'text-amber-600', Urgent: 'text-red-600' };
@@ -40,7 +40,7 @@ export function PurchaseRequestPage() {
           <tbody className="divide-y divide-slate-50">
             {requests.map(pr => (
               <tr key={pr.id} className="hover:bg-slate-50/50">
-                <td className="px-6 py-3.5 font-medium text-blue-600">{pr.requestNo}</td>
+                <td className="px-6 py-3.5 font-medium text-blue-600">{pr.pr_number || pr.requestNo}</td>
                 <td className="px-6 py-3.5 text-slate-700">{pr.user?.name} <span className="text-xs text-slate-400">({pr.user?.department})</span></td>
                 <td className="px-6 py-3.5 text-slate-600">{pr.items?.map(i => `${i.product?.name} ×${i.quantity}`).join(', ')}</td>
                 <td className={`px-6 py-3.5 font-semibold text-sm ${priorityStyle[pr.priority] || ''}`}>{pr.priority}</td>
@@ -85,7 +85,7 @@ export function PurchaseOrderPage() {
           <tbody className="divide-y divide-slate-50">
             {orders.map(po => (
               <tr key={po.id} className="hover:bg-slate-50/50">
-                <td className="px-6 py-3.5 font-medium text-blue-600">{po.orderNo}</td>
+                <td className="px-6 py-3.5 font-medium text-blue-600">{po.po_number || po.orderNo}</td>
                 <td className="px-6 py-3.5 text-slate-700">{po.vendor?.name}</td>
                 <td className="px-6 py-3.5 text-slate-600 text-xs">{po.items?.map(i => `${i.product?.name} ×${i.quantityOrdered}`).join(', ')}</td>
                 <td className="px-6 py-3.5 text-right font-medium">₹{Number(po.totalAmount).toLocaleString('en-IN')}</td>
@@ -121,7 +121,7 @@ export function GoodsReceiptPage() {
             {receipts.map(gr => (
               <tr key={gr.id} className="hover:bg-slate-50/50">
                 <td className="px-6 py-3.5 font-medium text-blue-600">{gr.receiptNo}</td>
-                <td className="px-6 py-3.5 text-slate-700">{gr.order?.orderNo || `PO-${gr.orderId}`}</td>
+                <td className="px-6 py-3.5 text-slate-700">{gr.order?.po_number || gr.order?.orderNo || `PO-${gr.orderId}`}</td>
                 <td className="px-6 py-3.5 text-slate-600">{gr.order?.vendor?.name}</td>
                 <td className="px-6 py-3.5 text-slate-600">{gr.receivedBy}</td>
                 <td className="px-6 py-3.5 text-slate-500">{new Date(gr.receivedAt).toLocaleDateString()}</td>
@@ -329,7 +329,7 @@ export function UsersPage() {
 
 // ─── Settings ───────────────────────────────────────
 export function SettingsPage() {
-  const user = useAuthStore(s => s.user);
+  const { user } = useAuth();
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-2xl">
       <h2 className="text-xl font-display font-bold text-slate-800">Settings</h2>

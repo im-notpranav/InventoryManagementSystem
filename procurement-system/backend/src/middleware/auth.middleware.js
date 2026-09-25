@@ -1,35 +1,31 @@
-import jwt from 'jsonwebtoken';
-import env from '../config/env.js';
-import { sendError } from '../utils/response.js';
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../config/env');
 
-export const authMiddleware = (req, res, next) => {
+const requireAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer '))
+    return res.status(401).json({ success: false, message: 'No token provided' });
+  const token = authHeader.split(' ')[1];
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return sendError(res, 'Access denied. No token provided.', 401);
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return sendError(res, 'Token expired. Please refresh.', 401);
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
     }
-    return sendError(res, 'Invalid token.', 401);
+    return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 };
 
-export const optionalAuth = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      req.user = jwt.verify(token, env.JWT_ACCESS_SECRET);
-    }
-  } catch {
-    // Token invalid, continue without auth
-  }
+const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user)
+    return res.status(401).json({ success: false, message: 'Not authenticated' });
+  if (!roles.includes(req.user.role))
+    return res.status(403).json({
+      success: false,
+      message: `Access denied. Required: ${roles.join(' or ')}`
+    });
   next();
 };
+
+module.exports = { requireAuth, requireRole };

@@ -85,7 +85,7 @@ export default function GoodsReceiptPage() {
             {receipts.map(gr => (
               <tr key={gr.id} className="hover:bg-slate-50/50">
                 <td className="px-6 py-3.5 font-medium text-blue-600">{gr.receiptNo}</td>
-                <td className="px-6 py-3.5 text-slate-700">{gr.order?.orderNo || `PO-${gr.orderId}`}</td>
+                <td className="px-6 py-3.5 text-slate-700">{gr.order?.po_number || gr.order?.orderNo || `PO-${gr.orderId}`}</td>
                 <td className="px-6 py-3.5 text-slate-600">{gr.order?.vendor?.name}</td>
                 <td className="px-6 py-3.5 text-slate-600">{gr.receivedBy}</td>
                 <td className="px-6 py-3.5 text-slate-500 text-xs">{gr.items?.length} items</td>
@@ -112,7 +112,7 @@ export default function GoodsReceiptPage() {
                   <select value={selectedOrder?.id || ''} onChange={e => handleSelectOrder(e.target.value)}
                     className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">Select order...</option>
-                    {orders.map(o => <option key={o.id} value={o.id}>{o.orderNo} — {o.vendor?.name}</option>)}
+                    {orders.map(o => <option key={o.id} value={o.id}>{o.po_number || o.orderNo} — {o.vendor?.name}</option>)}
                   </select>
                 </div>
                 <div>

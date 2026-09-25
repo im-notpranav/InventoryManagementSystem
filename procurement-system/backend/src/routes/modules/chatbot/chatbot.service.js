@@ -70,7 +70,22 @@ async function handleTrackOrder(message, user) {
     return { text: "You don't have any purchase requests yet. Would you like to create one?" };
   }
 
-  const statusEmoji = { Pending: '🟡', Approved: '🟢', Rejected: '🔴' };
+  const statusEmoji = {
+    pending: '🟡',
+    approved: '🟢',
+    rejected: '🔴',
+    rfq_sent: '📨',
+    quotation_received: '📩',
+    quotation_approved: '✅',
+    wo_issued: '📄',
+    dispatched: '🚚',
+    at_gate: '🚧',
+    documents_uploaded: '🗂️',
+    bill_released: '💸',
+    Pending: '🟡',
+    Approved: '🟢',
+    Rejected: '🔴',
+  };
   const list = requests.map(r =>
     `• **${r.requestNo}** — ${statusEmoji[r.status] || '⚪'} ${r.status} — ${r.items.map(i => `${i.product.name} ×${i.quantity}`).join(', ')}`
   ).join('\n');

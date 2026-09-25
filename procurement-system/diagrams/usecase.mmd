@@ -1,0 +1,37 @@
+graph LR
+    User([User])
+    Manager([Manager])
+    Vendor([Vendor])
+    Admin([Admin])
+
+    subgraph System_Use_Cases
+        UC1(Create PR)
+        UC2(Approve PR)
+        UC3(Compare Quotes)
+        UC4(Submit Quotations)
+        UC5(Fulfill PO)
+        UC6(Receive Goods)
+        UC7(Verify Invoice)
+        UC8(Manage Inventory)
+        UC9(Chat with ProcureIQ)
+    end
+
+    User --> UC1
+    User --> UC8
+    User --> UC9
+
+    Manager --> UC1
+    Manager --> UC2
+    Manager --> UC3
+    Manager --> UC8
+    Manager --> UC9
+
+    Vendor --> UC4
+    Vendor --> UC5
+
+    Admin --> UC2
+    Admin --> UC3
+    Admin --> UC6
+    Admin --> UC7
+    Admin --> UC8
+    Admin --> UC9

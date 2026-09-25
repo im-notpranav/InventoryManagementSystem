@@ -1,0 +1,30 @@
+classDiagram
+    class AuthModule {
+        +login()
+        +register()
+    }
+    class PRModule {
+        +createPR()
+        +approvePR()
+    }
+    class POModule {
+        +generatePO()
+    }
+    class RFQModule {
+        +sendRFQ()
+        +receiveQuote()
+    }
+    class InventoryModule {
+        +checkStock()
+        +updateStock()
+    }
+    class ChatbotModule {
+        +handleQuery()
+    }
+    
+    AuthModule --> PRModule
+    PRModule --> RFQModule
+    RFQModule --> POModule
+    POModule --> InventoryModule
+    ChatbotModule --> PRModule
+    ChatbotModule --> InventoryModule

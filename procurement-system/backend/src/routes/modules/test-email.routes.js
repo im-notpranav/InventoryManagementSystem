@@ -1,16 +1,18 @@
 import { Router } from 'express';
-import { sendEmail } from '../../../utils/mailer.js';
-import { sendSuccess, sendError } from '../../../utils/response.js';
-import { authMiddleware } from '../../../middleware/auth.middleware.js';
+import { sendEmail } from '../../utils/mailer.js';
+import { sendSuccess, sendError } from '../../utils/response.js';
+import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { blockVendor } from '../../middleware/rbac.middleware.js';
 
 const router = Router();
+// Admin utility endpoint for SMTP verification.
 
 /**
  * Test email endpoint - Admin only
  * POST /api/test-email
  * Body: { to: "recipient@email.com" }
  */
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, blockVendor, async (req, res) => {
   try {
     // Only admins can test email
     if (req.user.role !== 'Admin') {

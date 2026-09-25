@@ -11,3 +11,13 @@ export const rbac = (...allowedRoles) => {
     next();
   };
 };
+
+export const blockVendor = (req, res, next) => {
+  if (!req.user) {
+    return sendError(res, 'Authentication required.', 401);
+  }
+  if (req.user.role === 'Vendor') {
+    return sendError(res, 'Access denied. Vendors can only access vendor portal APIs.', 403);
+  }
+  return next();
+};

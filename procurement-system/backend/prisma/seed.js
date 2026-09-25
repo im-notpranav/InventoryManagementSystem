@@ -1,487 +1,819 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
-
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 async function seed() {
-  console.log('🌱 Seeding database...');
-  const generatePassword = () => crypto.randomBytes(10).toString('base64url');
-  const adminSeedPassword = process.env.SEED_ADMIN_PASSWORD || generatePassword();
-  const userSeedPassword = process.env.SEED_USER_PASSWORD || generatePassword();
-  const vendorSeedPassword = process.env.SEED_VENDOR_PASSWORD || generatePassword();
+  console.log('');
+  console.log('╔════════════════════════════════════════════╗');
+  console.log('║   InventBot — Database Seeder              ║');
+  console.log('║   Setting up fresh data...                 ║');
+  console.log('╚════════════════════════════════════════════╝');
+  console.log('');
 
-  // Roles
-  const roles = await Promise.all(
-    ['Admin', 'Manager', 'User', 'Vendor'].map(name =>
-      prisma.role.upsert({ where: { name }, update: {}, create: { name } })
-    )
-  );
-  console.log('✅ Roles created');
+  // ─────────────────────────────────────────────
+  // STEP 1: ROLES
+  // ─────────────────────────────────────────────
+  console.log('Creating roles...');
 
-  const adminRole = roles.find(r => r.name === 'Admin');
-  const userRole = roles.find(r => r.name === 'User');
-  const vendorRole = roles.find(r => r.name === 'Vendor');
-
-  // Admin user
-  const hashedPassword = await bcrypt.hash(adminSeedPassword, 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@inventbot.com' },
-    update: {},
-    create: {
-      name: 'Admin User',
-      email: 'admin@inventbot.com',
-      password: hashedPassword,
-      department: 'IT',
-      roleId: adminRole.id,
-    },
-  });
-
-  // Regular user
-  const userPassword = await bcrypt.hash(userSeedPassword, 12);
-  const user = await prisma.user.upsert({
-    where: { email: 'user@inventbot.com' },
-    update: {},
-    create: {
-      name: 'Ravi Kumar',
-      email: 'user@inventbot.com',
-      password: userPassword,
-      department: 'Operations',
-      roleId: userRole.id,
-    },
-  });
-  console.log('✅ Users created');
-
-  // Categories
-  const categories = await Promise.all(
-    ['Electronics', 'Furniture', 'Office Supplies', 'Networking', 'Peripherals'].map(name =>
-      prisma.category.upsert({ where: { name }, update: {}, create: { name } })
-    )
-  );
-  console.log('✅ Categories created');
-
-  // Vendors - 3 vendors for testing with explicit status
-  const vendorsData = [
-    { name: 'TechSupply Co.', email: 'vendor1@test.com', phone: '+91-9876543210', address: 'Mumbai, India', gstNumber: 'GST27AABCT1234A', rating: 4.5, status: 'Active', isBlacklisted: false },
-    { name: 'OfficeWorld', email: 'vendor2@test.com', phone: '+91-9876543211', address: 'Delhi, India', gstNumber: 'GST07AABCO5678B', rating: 4.2, status: 'Active', isBlacklisted: false },
-    { name: 'NetGear Distributors', email: 'vendor3@test.com', phone: '+91-9876543212', address: 'Bangalore, India', gstNumber: 'GST29AABCN9012C', rating: 4.8, status: 'Active', isBlacklisted: false },
+  const roleData = [
+    { role_name: 'Admin',           permissions: { all: true } },
+    { role_name: 'Department User', permissions: { create_pr: true, view_inventory: true } },
+    { role_name: 'Vendor',          permissions: { portal: true, submit_quote: true, dispatch: true } },
+    { role_name: 'Watchman',        permissions: { gate_entry: true, confirm_docs: true } },
+    { role_name: 'Accountant',      permissions: { billing: true, release_bill: true } },
   ];
 
-  const vendors = [];
-  for (const v of vendorsData) {
-    const vendor = await prisma.vendor.upsert({
-      where: { email: v.email },
-      update: { status: 'Active', isBlacklisted: false },
-      create: v,
+  const roles = {};
+  for (const r of roleData) {
+    const role = await prisma.role.upsert({
+      where:  { role_name: r.role_name },
+      update: { permissions: r.permissions },
+      create: r,
     });
-    vendors.push(vendor);
+    roles[r.role_name] = role;
+    console.log(`  ✅ Role: ${r.role_name} (id: ${role.role_id})`);
   }
-  console.log('✅ Vendors created (3 vendors)');
 
-  // Create 3 vendor user accounts linked to the 3 vendors
-  // Using same email as vendor for simplicity - vendor logs in with their vendor email
-  const vendorPassword = await bcrypt.hash(vendorSeedPassword, 12);
-  
-  const vendorUsers = [];
-  for (let i = 0; i < vendors.length; i++) {
-    const vendor = vendors[i];
-    const vendorUser = await prisma.user.upsert({
-      where: { email: vendor.email },
-      update: { 
-        vendorId: vendor.id, 
-        roleId: vendorRole.id,
-        isActive: true 
-      },
-      create: {
-        name: vendor.name,
-        email: vendor.email,
-        password: vendorPassword,
-        department: 'Vendor',
-        roleId: vendorRole.id,
-        vendorId: vendor.id,
-        isActive: true,
-      },
-    });
-    vendorUsers.push(vendorUser);
-  }
-  console.log('✅ Vendor users created (3 accounts - same email as vendor)');
+  // ─────────────────────────────────────────────
+  // STEP 2: DEFAULT USERS
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating default users...');
 
-  // Products
-  const productsData = [
-    { name: 'Laptop - Dell Latitude 5540', sku: 'ELEC-LAP-001', price: 72000, unit: 'pcs', categoryId: categories[0].id },
-    { name: 'Desktop Monitor 24"', sku: 'ELEC-MON-001', price: 15000, unit: 'pcs', categoryId: categories[0].id },
-    { name: 'Wireless Mouse', sku: 'PERI-MOU-001', price: 800, unit: 'pcs', categoryId: categories[4].id },
-    { name: 'Mechanical Keyboard', sku: 'PERI-KEY-001', price: 3500, unit: 'pcs', categoryId: categories[4].id },
-    { name: 'Office Chair - Ergonomic', sku: 'FURN-CHR-001', price: 12000, unit: 'pcs', categoryId: categories[1].id },
-    { name: 'Standing Desk', sku: 'FURN-DSK-001', price: 25000, unit: 'pcs', categoryId: categories[1].id },
-    { name: 'A4 Paper (Box of 5 reams)', sku: 'OFFC-PAP-001', price: 1200, unit: 'box', categoryId: categories[2].id },
-    { name: 'Printer Ink Cartridge', sku: 'OFFC-INK-001', price: 2500, unit: 'pcs', categoryId: categories[2].id },
-    { name: 'Network Switch 24-Port', sku: 'NETW-SWT-001', price: 18000, unit: 'pcs', categoryId: categories[3].id },
-    { name: 'CAT6 Ethernet Cable (100m)', sku: 'NETW-CAB-001', price: 3000, unit: 'roll', categoryId: categories[3].id },
-    { name: 'USB-C Hub', sku: 'PERI-HUB-001', price: 2200, unit: 'pcs', categoryId: categories[4].id },
-    { name: 'Webcam HD 1080p', sku: 'PERI-CAM-001', price: 4500, unit: 'pcs', categoryId: categories[4].id },
-    { name: 'UPS 1000VA', sku: 'ELEC-UPS-001', price: 8500, unit: 'pcs', categoryId: categories[0].id },
-    { name: 'Laser Printer', sku: 'ELEC-PRT-001', price: 22000, unit: 'pcs', categoryId: categories[0].id },
-    { name: 'Whiteboard 4x3ft', sku: 'OFFC-WBD-001', price: 3500, unit: 'pcs', categoryId: categories[2].id },
+  const defaultUsers = [
+    {
+      name:       'System Admin',
+      email:      'admin@college.edu',
+      password:   'admin123',
+      role:       'Admin',
+      department: 'Administration',
+      phone:      '9000000001',
+    },
+    {
+      name:       'IT Department',
+      email:      'itdept@college.edu',
+      password:   'dept123',
+      role:       'Department User',
+      department: 'Information Technology',
+      phone:      '9000000002',
+    },
+    {
+      name:       'HR Department',
+      email:      'hrdept@college.edu',
+      password:   'dept123',
+      role:       'Department User',
+      department: 'Human Resources',
+      phone:      '9000000003',
+    },
+    {
+      name:       'Gate Watchman',
+      email:      'watchman@college.edu',
+      password:   'watch123',
+      role:       'Watchman',
+      department: null,
+      phone:      '9000000004',
+    },
+    {
+      name:       'College Accountant',
+      email:      'accountant@college.edu',
+      password:   'acc123',
+      role:       'Accountant',
+      department: null,
+      phone:      '9000000005',
+    },
   ];
 
-  const products = [];
-  for (const p of productsData) {
-    const product = await prisma.product.upsert({
-      where: { sku: p.sku },
+  const createdUsers = {};
+  for (const u of defaultUsers) {
+    const hashed = await bcrypt.hash(u.password, 10);
+    const user = await prisma.user.upsert({
+      where:  { email: u.email },
       update: {},
-      create: p,
+      create: {
+        name:       u.name,
+        email:      u.email,
+        password:   hashed,
+        role_id:    roles[u.role].role_id,
+        department: u.department,
+        phone:      u.phone,
+        is_active:  true,
+      },
     });
-    products.push(product);
+    createdUsers[u.email] = user;
+    console.log(`  ✅ User: ${u.email} / ${u.password}  [${u.role}]`);
   }
-  console.log('✅ Products created');
 
-  // Inventory
-  const inventoryData = [
-    { productId: products[0].id, quantity: 15, reorderPoint: 5, minimumStock: 3, location: 'Warehouse A' },
-    { productId: products[1].id, quantity: 22, reorderPoint: 8, minimumStock: 5, location: 'Warehouse A' },
-    { productId: products[2].id, quantity: 50, reorderPoint: 15, minimumStock: 10, location: 'Store Room 1' },
-    { productId: products[3].id, quantity: 8, reorderPoint: 10, minimumStock: 5, location: 'Store Room 1' },
-    { productId: products[4].id, quantity: 3, reorderPoint: 5, minimumStock: 2, location: 'Warehouse B' },
-    { productId: products[5].id, quantity: 6, reorderPoint: 3, minimumStock: 2, location: 'Warehouse B' },
-    { productId: products[6].id, quantity: 120, reorderPoint: 30, minimumStock: 20, location: 'Store Room 2' },
-    { productId: products[7].id, quantity: 4, reorderPoint: 10, minimumStock: 5, location: 'Store Room 2' },
-    { productId: products[8].id, quantity: 7, reorderPoint: 3, minimumStock: 2, location: 'IT Room' },
-    { productId: products[9].id, quantity: 12, reorderPoint: 5, minimumStock: 3, location: 'IT Room' },
-    { productId: products[10].id, quantity: 18, reorderPoint: 8, minimumStock: 5, location: 'Store Room 1' },
-    { productId: products[11].id, quantity: 10, reorderPoint: 5, minimumStock: 3, location: 'Store Room 1' },
-    { productId: products[12].id, quantity: 2, reorderPoint: 4, minimumStock: 2, location: 'Server Room' },
-    { productId: products[13].id, quantity: 5, reorderPoint: 2, minimumStock: 1, location: 'IT Room' },
-    { productId: products[14].id, quantity: 9, reorderPoint: 3, minimumStock: 2, location: 'Warehouse B' },
+  // ─────────────────────────────────────────────
+  // STEP 3: VENDORS WITH USER ACCOUNTS
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating vendor accounts...');
+
+  const vendorData = [
+    {
+      company:  'TechSupply Solutions',
+      contact:  'Rajesh Kumar',
+      email:    'vendor1@techsupply.com',
+      phone:    '9100000001',
+      address:  '12 Industrial Area, Bengaluru - 560001',
+      rating:   4.5,
+    },
+    {
+      company:  'OfficeWorld Traders',
+      contact:  'Priya Sharma',
+      email:    'vendor2@officeworld.com',
+      phone:    '9100000002',
+      address:  '45 Commercial Complex, Mumbai - 400001',
+      rating:   4.2,
+    },
+    {
+      company:  'PrintMaster India',
+      contact:  'Suresh Nair',
+      email:    'vendor3@printmaster.com',
+      phone:    '9100000003',
+      address:  '78 Business Park, Chennai - 600001',
+      rating:   3.8,
+    },
   ];
 
-  for (const inv of inventoryData) {
-    await prisma.inventory.upsert({
-      where: { productId: inv.productId },
-      update: inv,
-      create: inv,
+  const createdVendors = {};
+  for (const v of vendorData) {
+    const hashed = await bcrypt.hash('vendor123', 10);
+
+    // Create user account for vendor
+    const user = await prisma.user.upsert({
+      where:  { email: v.email },
+      update: {},
+      create: {
+        name:      v.contact,
+        email:     v.email,
+        password:  hashed,
+        role_id:   roles['Vendor'].role_id,
+        is_active: true,
+      },
     });
+
+    // Create vendor record linked to user
+    const vendor = await prisma.vendor.upsert({
+      where:  { user_id: user.user_id },
+      update: {},
+      create: {
+        user_id:       user.user_id,
+        vendor_name:   v.company,
+        company_name:  v.company,
+        email:         v.email,
+        phone:         v.phone,
+        address:       v.address,
+        rating:        v.rating,
+        is_approved:   true,
+        status:        'active',
+      },
+    });
+
+    createdVendors[v.company] = vendor;
+    console.log(`  ✅ Vendor: ${v.company} | Login: ${v.email} / vendor123`);
   }
-  console.log('✅ Inventory created');
 
-  // Purchase Requests - one approved for each vendor
-  const pr1 = await prisma.purchaseRequest.create({
-    data: {
-      userId: user.id,
-      status: 'PO_Created',
-      priority: 'High',
-      notes: 'Urgent requirement for new team members',
-      approvedAt: new Date(),
-      items: {
-        create: [
-          { productId: products[0].id, quantity: 5 },
-          { productId: products[1].id, quantity: 5 },
-        ],
+  // ─────────────────────────────────────────────
+  // STEP 4: PRODUCT CATEGORIES
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating product categories...');
+
+  const categoryData = [
+    { name: 'Computing & IT',    description: 'Laptops, desktops, servers, networking equipment' },
+    { name: 'Office Furniture',  description: 'Chairs, desks, tables, storage units' },
+    { name: 'Printing & Imaging',description: 'Printers, scanners, ink, toner, paper' },
+    { name: 'Networking',        description: 'Routers, switches, cables, access points' },
+    { name: 'Stationery',        description: 'Pens, notebooks, files, binding materials' },
+    { name: 'Electrical',        description: 'UPS, power strips, extension cords, batteries' },
+    { name: 'Cleaning Supplies', description: 'Cleaning agents, equipment, consumables' },
+    { name: 'Lab Equipment',     description: 'Scientific instruments and lab consumables' },
+    { name: 'Software Licenses', description: 'Operating systems, productivity software' },
+    { name: 'AV Equipment',      description: 'Projectors, screens, microphones, speakers' },
+  ];
+
+  const createdCategories = {};
+  for (const c of categoryData) {
+    const cat = await prisma.category.create({ data: c });
+    createdCategories[c.name] = cat;
+    console.log(`  ✅ Category: ${c.name}`);
+  }
+
+  // ─────────────────────────────────────────────
+  // STEP 5: PRODUCTS (30+ products)
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating products...');
+
+  const productData = [
+
+    // Computing & IT
+    {
+      category: 'Computing & IT',
+      sku: 'LAPTOP-DELL-001',
+      name: 'Dell Inspiron 15 Laptop',
+      description: 'Intel Core i5, 8GB RAM, 512GB SSD, Windows 11',
+      unit: 'piece',
+      unit_price: 48000,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'LAPTOP-HP-002',
+      name: 'HP Pavilion 14 Laptop',
+      description: 'AMD Ryzen 5, 8GB RAM, 256GB SSD, Windows 11',
+      unit: 'piece',
+      unit_price: 42000,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'DESKTOP-LENOVO-003',
+      name: 'Lenovo ThinkCentre Desktop',
+      description: 'Intel Core i7, 16GB RAM, 1TB HDD, Windows 11 Pro',
+      unit: 'piece',
+      unit_price: 55000,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'MONITOR-LG-004',
+      name: 'LG 24 inch Full HD Monitor',
+      description: 'IPS Panel, 1080p, HDMI + VGA ports',
+      unit: 'piece',
+      unit_price: 12000,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'KEYBOARD-LOGIT-005',
+      name: 'Logitech Wireless Keyboard',
+      description: 'Full size, USB dongle, 2 year battery life',
+      unit: 'piece',
+      unit_price: 1800,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'MOUSE-LOGIT-006',
+      name: 'Logitech Wireless Mouse',
+      description: 'Optical, USB dongle, adjustable DPI',
+      unit: 'piece',
+      unit_price: 900,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'PENDRIVE-SAN-007',
+      name: 'SanDisk 64GB USB Pendrive',
+      description: 'USB 3.0, read speed 130MB/s',
+      unit: 'piece',
+      unit_price: 650,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'HDD-SEAG-008',
+      name: 'Seagate 1TB External Hard Drive',
+      description: 'USB 3.0, portable, black',
+      unit: 'piece',
+      unit_price: 3800,
+    },
+    {
+      category: 'Computing & IT',
+      sku: 'WEBCAM-LOGIT-009',
+      name: 'Logitech C920 HD Webcam',
+      description: '1080p, built-in microphone, auto-focus',
+      unit: 'piece',
+      unit_price: 5500,
+    },
+
+    // Office Furniture
+    {
+      category: 'Office Furniture',
+      sku: 'CHAIR-EXEC-010',
+      name: 'Executive Office Chair',
+      description: 'High back, mesh, adjustable height, lumbar support',
+      unit: 'piece',
+      unit_price: 8500,
+    },
+    {
+      category: 'Office Furniture',
+      sku: 'CHAIR-STUDY-011',
+      name: 'Study Chair',
+      description: 'Standard padded seat, 4-leg frame, stackable',
+      unit: 'piece',
+      unit_price: 2200,
+    },
+    {
+      category: 'Office Furniture',
+      sku: 'DESK-COMP-012',
+      name: 'Computer Desk',
+      description: 'L-shaped, 1.2m × 0.6m, with cable management',
+      unit: 'piece',
+      unit_price: 6500,
+    },
+    {
+      category: 'Office Furniture',
+      sku: 'CABINET-FILE-013',
+      name: 'Filing Cabinet',
+      description: '4-drawer steel, A4 size, with lock',
+      unit: 'piece',
+      unit_price: 9000,
+    },
+    {
+      category: 'Office Furniture',
+      sku: 'SHELF-BOOK-014',
+      name: 'Bookshelf 5 Tier',
+      description: 'Wooden, 180cm height, 80cm width, white',
+      unit: 'piece',
+      unit_price: 4800,
+    },
+
+    // Printing & Imaging
+    {
+      category: 'Printing & Imaging',
+      sku: 'PRINTER-HP-015',
+      name: 'HP LaserJet Pro Printer',
+      description: 'Monochrome, 30ppm, network ready, duplex printing',
+      unit: 'piece',
+      unit_price: 22000,
+    },
+    {
+      category: 'Printing & Imaging',
+      sku: 'PRINTER-CANON-016',
+      name: 'Canon PIXMA Inkjet Printer',
+      description: 'Color, WiFi, print/scan/copy, borderless printing',
+      unit: 'piece',
+      unit_price: 8500,
+    },
+    {
+      category: 'Printing & Imaging',
+      sku: 'TONER-HP-017',
+      name: 'HP LaserJet Toner Cartridge',
+      description: 'Black, 2000 page yield, genuine HP',
+      unit: 'piece',
+      unit_price: 3200,
+    },
+    {
+      category: 'Printing & Imaging',
+      sku: 'PAPER-A4-018',
+      name: 'A4 Copier Paper',
+      description: '75 GSM, 500 sheets per ream, white',
+      unit: 'ream',
+      unit_price: 320,
+    },
+    {
+      category: 'Printing & Imaging',
+      sku: 'SCANNER-EPSON-019',
+      name: 'Epson Flatbed Scanner',
+      description: '1200 DPI, A4 size, USB connectivity',
+      unit: 'piece',
+      unit_price: 7500,
+    },
+
+    // Networking
+    {
+      category: 'Networking',
+      sku: 'ROUTER-TPLINK-020',
+      name: 'TP-Link WiFi Router',
+      description: 'AC1200, dual band, 4 antennas, up to 20 devices',
+      unit: 'piece',
+      unit_price: 2800,
+    },
+    {
+      category: 'Networking',
+      sku: 'SWITCH-CISCO-021',
+      name: 'Cisco 24-Port Network Switch',
+      description: 'Gigabit, unmanaged, rack-mountable',
+      unit: 'piece',
+      unit_price: 18000,
+    },
+    {
+      category: 'Networking',
+      sku: 'CABLE-CAT6-022',
+      name: 'CAT6 Ethernet Cable 10m',
+      description: 'RJ45 connectors, shielded, blue',
+      unit: 'piece',
+      unit_price: 280,
+    },
+
+    // Stationery
+    {
+      category: 'Stationery',
+      sku: 'PEN-BALL-023',
+      name: 'Cello Ball Pen',
+      description: 'Blue ink, smooth writing, pack of 10',
+      unit: 'pack',
+      unit_price: 85,
+    },
+    {
+      category: 'Stationery',
+      sku: 'NOTEBOOK-A4-024',
+      name: 'A4 Spiral Notebook',
+      description: '200 pages, ruled, single line, hard cover',
+      unit: 'piece',
+      unit_price: 120,
+    },
+    {
+      category: 'Stationery',
+      sku: 'FILE-ARCH-025',
+      name: 'Arch Lever File',
+      description: 'A4, 70mm spine, PVC cover, assorted colors',
+      unit: 'piece',
+      unit_price: 95,
+    },
+    {
+      category: 'Stationery',
+      sku: 'MARKER-WHITE-026',
+      name: 'Whiteboard Marker Set',
+      description: '4 colors (black, blue, red, green), chisel tip',
+      unit: 'set',
+      unit_price: 160,
+    },
+
+    // Electrical
+    {
+      category: 'Electrical',
+      sku: 'UPS-APC-027',
+      name: 'APC 600VA UPS',
+      description: '600VA / 360W, 2 battery backup outlets, surge protection',
+      unit: 'piece',
+      unit_price: 4500,
+    },
+    {
+      category: 'Electrical',
+      sku: 'STRIP-POWER-028',
+      name: '6-Socket Power Strip with Surge Protection',
+      description: '3 meter cord, individual switches, child-safe',
+      unit: 'piece',
+      unit_price: 850,
+    },
+
+    // AV Equipment
+    {
+      category: 'AV Equipment',
+      sku: 'PROJECTOR-EPSON-029',
+      name: 'Epson EB-X51 Projector',
+      description: '3800 Lumens, XGA, HDMI + VGA, remote included',
+      unit: 'piece',
+      unit_price: 35000,
+    },
+    {
+      category: 'AV Equipment',
+      sku: 'SCREEN-PROJ-030',
+      name: 'Projector Screen 100 inch',
+      description: 'Tripod stand, matte white surface, 4:3 ratio',
+      unit: 'piece',
+      unit_price: 6500,
+    },
+    {
+      category: 'AV Equipment',
+      sku: 'MIC-WIRELESS-031',
+      name: 'Wireless Microphone System',
+      description: 'UHF, handheld + lapel, 50m range, receiver included',
+      unit: 'set',
+      unit_price: 8500,
+    },
+
+    // Lab Equipment
+    {
+      category: 'Lab Equipment',
+      sku: 'SCOPE-MICRO-032',
+      name: 'Binocular Microscope',
+      description: '40x-1000x, LED illumination, coarse and fine focus',
+      unit: 'piece',
+      unit_price: 18000,
+    },
+    {
+      category: 'Lab Equipment',
+      sku: 'GLOVES-LAB-033',
+      name: 'Latex Lab Gloves (Medium)',
+      description: 'Powder-free, disposable, 100 pieces per box',
+      unit: 'box',
+      unit_price: 450,
+    },
+
+    // Software Licenses
+    {
+      category: 'Software Licenses',
+      sku: 'MS-OFFICE-034',
+      name: 'Microsoft Office 2021 License',
+      description: 'Home and Business, Word/Excel/PowerPoint/Outlook, 1 PC',
+      unit: 'license',
+      unit_price: 7500,
+    },
+    {
+      category: 'Software Licenses',
+      sku: 'WIN-11-035',
+      name: 'Windows 11 Pro License',
+      description: 'Genuine Microsoft, OEM, 1 PC activation',
+      unit: 'license',
+      unit_price: 9500,
+    },
+
+    // Cleaning Supplies
+    {
+      category: 'Cleaning Supplies',
+      sku: 'CLEAN-FLOOR-036',
+      name: 'Floor Cleaning Liquid',
+      description: 'Pine fragrance, 5 liter can, concentrated formula',
+      unit: 'can',
+      unit_price: 380,
+    },
+    {
+      category: 'Cleaning Supplies',
+      sku: 'TISSUE-BOX-037',
+      name: 'Facial Tissue Box',
+      description: '200 pulls, 2-ply, soft, pack of 5 boxes',
+      unit: 'pack',
+      unit_price: 220,
+    },
+  ];
+
+  const createdProducts = {};
+  for (const p of productData) {
+    const product = await prisma.product.create({
+      data: {
+        category_id: createdCategories[p.category].category_id,
+        sku:         p.sku,
+        name:        p.name,
+        description: p.description,
+        unit:        p.unit,
+        unit_price:  p.unit_price,
+        is_active:   true,
       },
-    },
-  });
+    });
+    createdProducts[p.sku] = product;
+    console.log(`  ✅ Product: ${p.name} (₹${p.unit_price.toLocaleString('en-IN')})`);
+  }
 
-  const pr2 = await prisma.purchaseRequest.create({
-    data: {
-      userId: user.id,
-      status: 'PO_Created',
-      priority: 'Medium',
-      notes: 'Office furniture restocking',
-      approvedAt: new Date(),
-      items: {
-        create: [
-          { productId: products[4].id, quantity: 10 },
-          { productId: products[5].id, quantity: 5 },
-        ],
+  // ─────────────────────────────────────────────
+  // STEP 6: WAREHOUSES
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating warehouses...');
+
+  const warehouseData = [
+    {
+      name:         'Main Storeroom',
+      location:     'Administrative Block, Ground Floor, Room 001',
+      manager_name: 'Store Manager',
+    },
+    {
+      name:         'IT Equipment Store',
+      location:     'Computer Science Block, First Floor, Room 104',
+      manager_name: 'IT Admin',
+    },
+    {
+      name:         'Science Lab Store',
+      location:     'Science Block, Basement, Room B-02',
+      manager_name: 'Lab Technician',
+    },
+  ];
+
+  const createdWarehouses = {};
+  for (const w of warehouseData) {
+    const warehouse = await prisma.warehouse.create({ data: w });
+    createdWarehouses[w.name] = warehouse;
+    console.log(`  ✅ Warehouse: ${w.name}`);
+  }
+
+  // ─────────────────────────────────────────────
+  // STEP 7: INVENTORY (stock levels for products)
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Setting up inventory stock levels...');
+
+  const inventoryData = [
+
+    // Main Storeroom — general items
+    { sku: 'PAPER-A4-018',    warehouse: 'Main Storeroom',      qty: 45,  reorder: 20, min: 10, max: 100 },
+    { sku: 'PEN-BALL-023',    warehouse: 'Main Storeroom',      qty: 120, reorder: 30, min: 20, max: 200 },
+    { sku: 'NOTEBOOK-A4-024', warehouse: 'Main Storeroom',      qty: 60,  reorder: 20, min: 10, max: 150 },
+    { sku: 'FILE-ARCH-025',   warehouse: 'Main Storeroom',      qty: 35,  reorder: 15, min: 10, max: 100 },
+    { sku: 'MARKER-WHITE-026',warehouse: 'Main Storeroom',      qty: 8,   reorder: 10, min: 5,  max: 50  },
+    { sku: 'TONER-HP-017',    warehouse: 'Main Storeroom',      qty: 4,   reorder: 5,  min: 2,  max: 20  },
+    { sku: 'CLEAN-FLOOR-036', warehouse: 'Main Storeroom',      qty: 12,  reorder: 8,  min: 4,  max: 30  },
+    { sku: 'TISSUE-BOX-037',  warehouse: 'Main Storeroom',      qty: 25,  reorder: 10, min: 5,  max: 60  },
+    { sku: 'STRIP-POWER-028', warehouse: 'Main Storeroom',      qty: 6,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'CABLE-CAT6-022',  warehouse: 'Main Storeroom',      qty: 20,  reorder: 10, min: 5,  max: 50  },
+
+    // IT Equipment Store
+    { sku: 'LAPTOP-DELL-001', warehouse: 'IT Equipment Store',  qty: 12,  reorder: 5,  min: 3,  max: 30  },
+    { sku: 'LAPTOP-HP-002',   warehouse: 'IT Equipment Store',  qty: 8,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'DESKTOP-LENOVO-003',warehouse:'IT Equipment Store', qty: 5,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'MONITOR-LG-004',  warehouse: 'IT Equipment Store',  qty: 18,  reorder: 6,  min: 3,  max: 40  },
+    { sku: 'KEYBOARD-LOGIT-005',warehouse:'IT Equipment Store', qty: 22,  reorder: 8,  min: 4,  max: 50  },
+    { sku: 'MOUSE-LOGIT-006', warehouse: 'IT Equipment Store',  qty: 25,  reorder: 8,  min: 4,  max: 50  },
+    { sku: 'PENDRIVE-SAN-007',warehouse: 'IT Equipment Store',  qty: 40,  reorder: 15, min: 10, max: 80  },
+    { sku: 'HDD-SEAG-008',    warehouse: 'IT Equipment Store',  qty: 7,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'WEBCAM-LOGIT-009',warehouse: 'IT Equipment Store',  qty: 3,   reorder: 3,  min: 1,  max: 10  },
+    { sku: 'ROUTER-TPLINK-020',warehouse:'IT Equipment Store',  qty: 6,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'SWITCH-CISCO-021',warehouse: 'IT Equipment Store',  qty: 2,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'UPS-APC-027',     warehouse: 'IT Equipment Store',  qty: 9,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'PRINTER-HP-015',  warehouse: 'IT Equipment Store',  qty: 4,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'PRINTER-CANON-016',warehouse:'IT Equipment Store',  qty: 3,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'SCANNER-EPSON-019',warehouse:'IT Equipment Store',  qty: 2,   reorder: 2,  min: 1,  max: 6   },
+    { sku: 'MS-OFFICE-034',   warehouse: 'IT Equipment Store',  qty: 15,  reorder: 5,  min: 3,  max: 30  },
+    { sku: 'WIN-11-035',      warehouse: 'IT Equipment Store',  qty: 10,  reorder: 5,  min: 2,  max: 25  },
+
+    // Main Storeroom — furniture and AV
+    { sku: 'CHAIR-EXEC-010',  warehouse: 'Main Storeroom',      qty: 5,   reorder: 3,  min: 1,  max: 20  },
+    { sku: 'CHAIR-STUDY-011', warehouse: 'Main Storeroom',      qty: 30,  reorder: 10, min: 5,  max: 80  },
+    { sku: 'DESK-COMP-012',   warehouse: 'Main Storeroom',      qty: 4,   reorder: 2,  min: 1,  max: 15  },
+    { sku: 'CABINET-FILE-013',warehouse: 'Main Storeroom',      qty: 6,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'SHELF-BOOK-014',  warehouse: 'Main Storeroom',      qty: 8,   reorder: 3,  min: 1,  max: 20  },
+    { sku: 'PROJECTOR-EPSON-029',warehouse:'Main Storeroom',    qty: 3,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'SCREEN-PROJ-030', warehouse: 'Main Storeroom',      qty: 4,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'MIC-WIRELESS-031',warehouse: 'Main Storeroom',      qty: 2,   reorder: 2,  min: 1,  max: 6   },
+
+    // Science Lab Store
+    { sku: 'SCOPE-MICRO-032', warehouse: 'Science Lab Store',   qty: 5,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'GLOVES-LAB-033',  warehouse: 'Science Lab Store',   qty: 15,  reorder: 8,  min: 4,  max: 40  },
+  ];
+
+  let inventoryCount = 0;
+  for (const item of inventoryData) {
+    const product  = createdProducts[item.sku];
+    const warehouse = createdWarehouses[item.warehouse];
+
+    if (!product || !warehouse) {
+      console.log(`  ⚠️  Skipping inventory for ${item.sku} — product or warehouse not found`);
+      continue;
+    }
+
+    await prisma.inventory.create({
+      data: {
+        product_id:         product.product_id,
+        warehouse_id:       warehouse.warehouse_id,
+        quantity_available: item.qty,
+        reorder_point:      item.reorder,
+        min_stock:          item.min,
+        max_stock:          item.max,
       },
-    },
-  });
+    });
+    inventoryCount++;
+  }
+  console.log(`  ✅ Created ${inventoryCount} inventory entries`);
 
-  const pr3 = await prisma.purchaseRequest.create({
-    data: {
-      userId: admin.id,
-      status: 'PO_Created',
-      priority: 'Urgent',
-      notes: 'Network equipment for server room',
-      approvedAt: new Date(),
-      items: {
-        create: [
-          { productId: products[8].id, quantity: 4 },
-          { productId: products[9].id, quantity: 10 },
-        ],
-      },
-    },
-  });
+  // ─────────────────────────────────────────────
+  // STEP 8: WARRANTIES (for existing equipment)
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating sample warranties...');
 
-  const pr4 = await prisma.purchaseRequest.create({
-    data: {
-      userId: user.id,
-      status: 'RFQ_Sent',
-      priority: 'Medium',
-      notes: 'Printer ink critically low',
-      items: {
-        create: [
-          { productId: products[7].id, quantity: 15 },
-        ],
-      },
-    },
-  });
+  const today = new Date();
+  const vendor1 = Object.values(createdVendors)[0];
 
-  const pr5 = await prisma.purchaseRequest.create({
-    data: {
-      userId: user.id,
-      status: 'Pending',
-      priority: 'Low',
-      notes: 'General office supplies',
-      items: {
-        create: [
-          { productId: products[6].id, quantity: 50 },
-        ],
-      },
-    },
-  });
-
-  // Additional Approved PRs for RFQ workflow testing
-  const pr6 = await prisma.purchaseRequest.create({
-    data: {
-      userId: user.id,
-      status: 'Approved',
-      priority: 'High',
-      notes: 'New workstations for design team',
-      approvedAt: new Date(),
-      items: {
-        create: [
-          { productId: products[0].id, quantity: 3 },  // Laptops
-          { productId: products[10].id, quantity: 3 }, // USB-C Hubs
-          { productId: products[11].id, quantity: 3 }, // Webcams
-        ],
-      },
-    },
-  });
-
-  const pr7 = await prisma.purchaseRequest.create({
-    data: {
-      userId: admin.id,
-      status: 'RFQ_Sent',
-      priority: 'Urgent',
-      notes: 'Office expansion - furniture needed',
-      items: {
-        create: [
-          { productId: products[4].id, quantity: 15 },  // Ergonomic Chairs
-          { productId: products[5].id, quantity: 8 },   // Standing Desks
-          { productId: products[14].id, quantity: 4 },  // Whiteboards
-        ],
-      },
-    },
-  });
-
-  console.log('✅ Purchase requests created');
-
-  // Create RFQs for vendors to submit quotations
-  const rfq1 = await prisma.rFQ.create({
-    data: {
-      requestId: pr4.id,
-      status: 'Open',
-      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      notes: 'Please provide best price for bulk order',
-    },
-  });
-
-  const rfq2 = await prisma.rFQ.create({
-    data: {
-      requestId: pr7.id,
-      status: 'Open',
-      deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      notes: 'Office expansion project - competitive pricing required',
-    },
-  });
-
-  // Create RFQ for pr6 (workstations) so vendors can quote
-  const rfq3 = await prisma.rFQ.create({
-    data: {
-      requestId: pr6.id,
-      status: 'Open',
-      deadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
-      notes: 'Design team workstation setup - quality is priority',
-    },
-  });
-
-  // Update pr6 status to RFQ_Sent
-  await prisma.purchaseRequest.update({
-    where: { id: pr6.id },
-    data: { status: 'RFQ_Sent' },
-  });
-
-  // Invite vendors to RFQs (multi-vendor model)
-  // RFQ1: Invite all 3 vendors
-  await prisma.rFQVendor.createMany({
-    data: [
-      { rfqId: rfq1.id, vendorId: vendors[0].id, status: 'Invited' },
-      { rfqId: rfq1.id, vendorId: vendors[1].id, status: 'Invited' },
-      { rfqId: rfq1.id, vendorId: vendors[2].id, status: 'Invited' },
-    ],
-  });
-
-  // RFQ2: Invite vendors 1 and 2
-  await prisma.rFQVendor.createMany({
-    data: [
-      { rfqId: rfq2.id, vendorId: vendors[0].id, status: 'Invited' },
-      { rfqId: rfq2.id, vendorId: vendors[1].id, status: 'Invited' },
-    ],
-  });
-
-  // RFQ3: Invite vendors 2 and 3
-  await prisma.rFQVendor.createMany({
-    data: [
-      { rfqId: rfq3.id, vendorId: vendors[1].id, status: 'Invited' },
-      { rfqId: rfq3.id, vendorId: vendors[2].id, status: 'Invited' },
-    ],
-  });
-
-  console.log('✅ RFQs created (3 open RFQs with vendor invitations)');
-  console.log('   RFQ1: Invited vendors 1, 2, 3');
-  console.log('   RFQ2: Invited vendors 1, 2');
-  console.log('   RFQ3: Invited vendors 2, 3');
-
-  // Purchase Orders - one for each vendor so they can see different data
-  const po1 = await prisma.purchaseOrder.create({
-    data: {
-      requestId: pr1.id,
-      vendorId: vendors[0].id,  // TechSupply Co. - vendor1@test.com
-      status: 'Sent',
-      totalAmount: 435000,
-      sentToVendor: true,
-      sentAt: new Date(),
-      paymentTerms: 'Net 30',
-      shippingTerms: 'FOB',
-      expectedDelivery: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      items: {
-        create: [
-          { productId: products[0].id, quantityOrdered: 5, priceEach: 72000 },
-          { productId: products[1].id, quantityOrdered: 5, priceEach: 15000 },
-        ],
-      },
-    },
-  });
-
-  const po2 = await prisma.purchaseOrder.create({
-    data: {
-      requestId: pr2.id,
-      vendorId: vendors[1].id,  // OfficeWorld - vendor2@test.com
-      status: 'Sent',
-      totalAmount: 245000,
-      sentToVendor: true,
-      sentAt: new Date(),
-      paymentTerms: 'Net 45',
-      shippingTerms: 'CIF',
-      expectedDelivery: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      items: {
-        create: [
-          { productId: products[4].id, quantityOrdered: 10, priceEach: 12000 },
-          { productId: products[5].id, quantityOrdered: 5, priceEach: 25000 },
-        ],
-      },
-    },
-  });
-
-  const po3 = await prisma.purchaseOrder.create({
-    data: {
-      requestId: pr3.id,
-      vendorId: vendors[2].id,  // NetGear Distributors - vendor3@test.com
-      status: 'Acknowledged',
-      totalAmount: 102000,
-      sentToVendor: true,
-      sentAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      paymentTerms: 'Net 30',
-      shippingTerms: 'FOB',
-      expectedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-      items: {
-        create: [
-          { productId: products[8].id, quantityOrdered: 4, priceEach: 18000 },
-          { productId: products[9].id, quantityOrdered: 10, priceEach: 3000 },
-        ],
-      },
-    },
-  });
-
-  // Add a second PO for vendor 1 (TechSupply) with different status
-  const po4 = await prisma.purchaseOrder.create({
-    data: {
-      requestId: pr1.id,
-      vendorId: vendors[0].id,
-      status: 'Draft',
-      totalAmount: 22000,
-      sentToVendor: false,
-      paymentTerms: 'Net 30',
-      items: {
-        create: [
-          { productId: products[13].id, quantityOrdered: 1, priceEach: 22000 },
-        ],
-      },
-    },
-  });
-
-  // Log vendor portal actions for po3
-  await prisma.vendorPortalAction.create({
-    data: {
-      orderId: po3.id,
-      vendorId: vendors[2].id,
-      action: 'confirmed',
-      message: 'Order confirmed. Will ship within 5 business days.',
-    },
-  });
-
-  console.log('✅ Purchase orders created (4 POs for 3 vendors)');
-
-  // Warranties
   const warrantyData = [
-    { productId: products[0].id, serialNo: 'DL-5540-001', provider: 'Dell India', startDate: new Date('2024-01-15'), endDate: new Date('2027-01-15'), terms: '3-year on-site warranty' },
-    { productId: products[8].id, serialNo: 'NG-SW24-001', provider: 'NetGear Support', startDate: new Date('2024-06-01'), endDate: new Date('2025-06-01'), terms: '1-year replacement warranty' },
-    { productId: products[13].id, serialNo: 'HP-LJ-001', provider: 'HP India', startDate: new Date('2024-03-10'), endDate: new Date('2025-03-10'), terms: '1-year parts warranty' },
-    { productId: products[12].id, serialNo: 'APC-UPS-001', provider: 'APC by Schneider', startDate: new Date('2023-11-01'), endDate: new Date('2025-11-01'), terms: '2-year battery warranty' },
+    {
+      sku:           'LAPTOP-DELL-001',
+      serial:        'DELL-SN-2024-0001',
+      start:         new Date('2024-01-15'),
+      end:           new Date('2027-01-15'),
+    },
+    {
+      sku:           'PROJECTOR-EPSON-029',
+      serial:        'EPSON-PROJ-2023-0042',
+      start:         new Date('2023-06-01'),
+      end:           new Date(today.getFullYear(), today.getMonth(), today.getDate() + 25),
+      // Expires in 25 days — will show as expiring soon
+    },
+    {
+      sku:           'SWITCH-CISCO-021',
+      serial:        'CISCO-SW-2022-0003',
+      start:         new Date('2022-03-10'),
+      end:           new Date(today.getFullYear(), today.getMonth(), today.getDate() + 8),
+      // Expires in 8 days — critical
+    },
+    {
+      sku:           'UPS-APC-027',
+      serial:        'APC-UPS-2023-0015',
+      start:         new Date('2023-08-20'),
+      end:           new Date('2025-08-20'),
+    },
+    {
+      sku:           'PRINTER-HP-015',
+      serial:        'HP-PRINT-2024-0007',
+      start:         new Date('2024-03-01'),
+      end:           new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5),
+      // Already expired — 5 days ago
+    },
   ];
 
   for (const w of warrantyData) {
-    await prisma.warranty.create({ data: w });
+    const product = createdProducts[w.sku];
+    if (!product || !vendor1) continue;
+
+    await prisma.warranty.create({
+      data: {
+        product_id:    product.product_id,
+        vendor_id:     vendor1.vendor_id,
+        serial_number: w.serial,
+        start_date:    w.start,
+        end_date:      w.end,
+        notified:      false,
+      },
+    });
+
+    const daysLeft = Math.ceil((w.end - today) / (1000 * 60 * 60 * 24));
+    const status = daysLeft < 0
+      ? '🔴 EXPIRED'
+      : daysLeft <= 10
+      ? '🔴 CRITICAL'
+      : daysLeft <= 30
+      ? '⚠️  EXPIRING SOON'
+      : '✅ Active';
+    console.log(`  ${status} Warranty: ${product.name} | Days: ${daysLeft}`);
   }
-  console.log('✅ Warranties created');
 
-  // Notifications
-  await prisma.notification.createMany({
-    data: [
-      { userId: admin.id, title: 'New Purchase Request', message: 'Ravi Kumar submitted a purchase request for office chairs.', type: 'info', link: '/purchase-requests' },
-      { userId: admin.id, title: 'Low Stock Alert', message: 'Printer Ink Cartridge is below reorder point (4/10).', type: 'warning', link: '/inventory' },
-      { userId: admin.id, title: 'Warranty Expiring', message: 'HP Laser Printer warranty expires in 30 days.', type: 'warning', link: '/warranties' },
-      { userId: user.id, title: 'Request Approved', message: 'Your purchase request for laptops has been approved!', type: 'success', link: '/purchase-requests' },
-      // Notifications for vendor users
-      { userId: vendorUsers[0].id, title: 'New Purchase Order', message: 'You have received a new purchase order PO-001.', type: 'info', link: '/vendor-portal' },
-      { userId: vendorUsers[0].id, title: 'Another PO Pending', message: 'A draft purchase order is awaiting finalization.', type: 'info', link: '/vendor-portal' },
-      { userId: vendorUsers[1].id, title: 'New Purchase Order', message: 'You have received a new purchase order for furniture.', type: 'info', link: '/vendor-portal' },
-      { userId: vendorUsers[2].id, title: 'PO Acknowledged', message: 'Your confirmation for networking equipment has been recorded.', type: 'success', link: '/vendor-portal' },
-    ],
-  });
-  console.log('✅ Notifications created');
+  // ─────────────────────────────────────────────
+  // STEP 9: SUBSCRIPTIONS
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('Creating subscriptions...');
 
-  // Final summary
-  const rfqCount = await prisma.rFQ.count({ where: { status: 'Open' } });
-  const vendorUserCount = await prisma.user.count({ where: { role: { name: 'Vendor' } } });
+  const subscriptionData = [
+    {
+      sku:          'MS-OFFICE-034',
+      service:      'Microsoft 365 Business',
+      expiry:       new Date(today.getFullYear(), today.getMonth(), today.getDate() + 20),
+      auto_renew:   false,
+    },
+    {
+      sku:          'WIN-11-035',
+      service:      'Windows Defender Antivirus',
+      expiry:       new Date(today.getFullYear(), today.getMonth() + 3, today.getDate()),
+      auto_renew:   true,
+    },
+    {
+      sku:          'LAPTOP-DELL-001',
+      service:      'Dell SupportAssist Pro',
+      expiry:       new Date(today.getFullYear(), today.getMonth(), today.getDate() + 45),
+      auto_renew:   false,
+    },
+  ];
 
-  console.log('\n🎉 Database seeded successfully!');
-  console.log('\n📊 Summary:');
-  console.log(`   - ${rfqCount} Open RFQs ready for vendor quotations`);
-  console.log(`   - ${vendorUserCount} Vendor user accounts created`);
-  console.log('\n📧 Login credentials:');
-  console.log(`   Admin:   admin@inventbot.com / ${adminSeedPassword}`);
-  console.log(`   User:    user@inventbot.com / ${userSeedPassword}`);
-  console.log(`   Vendor1: vendor1@test.com / ${vendorSeedPassword} (TechSupply Co.)`);
-  console.log(`   Vendor2: vendor2@test.com / ${vendorSeedPassword} (OfficeWorld)`);
-  console.log(`   Vendor3: vendor3@test.com / ${vendorSeedPassword} (NetGear Distributors)`);
-  console.log('\n🔄 Workflow Test:');
-  console.log('   1. Login as vendor → Go to Quotations tab → See open RFQs');
-  console.log('   2. Submit quotation → Login as admin → Go to RFQ page');
-  console.log('   3. Compare quotes → Select best → PO auto-created');
+  for (const s of subscriptionData) {
+    const product = createdProducts[s.sku];
+    if (!product) continue;
+
+    await prisma.subscription.create({
+      data: {
+        product_id:   product.product_id,
+        service_name: s.service,
+        expiry_date:  s.expiry,
+        auto_renew:   s.auto_renew,
+        notified:     false,
+      },
+    });
+
+    const daysLeft = Math.ceil((s.expiry - today) / (1000 * 60 * 60 * 24));
+    const status = daysLeft <= 30 ? '⚠️  EXPIRING SOON' : '✅ Active';
+    console.log(`  ${status} Subscription: ${s.service} | Days: ${daysLeft}`);
+  }
+
+  // ─────────────────────────────────────────────
+  // DONE — Print summary
+  // ─────────────────────────────────────────────
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════╗');
+  console.log('║              InventBot Seeding Complete! ✅              ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║  WHAT WAS CREATED:                                       ║');
+  console.log(`║  • ${Object.keys(roles).length} Roles                                                ║`);
+  console.log(`║  • ${Object.keys(createdUsers).length} Default user accounts                               ║`);
+  console.log(`║  • ${Object.keys(createdVendors).length} Vendor accounts                                     ║`);
+  console.log(`║  • ${Object.keys(createdCategories).length} Product categories                                   ║`);
+  console.log(`║  • ${Object.keys(createdProducts).length} Products across all categories                    ║`);
+  console.log(`║  • ${Object.keys(createdWarehouses).length} Warehouses                                          ║`);
+  console.log(`║  • ${inventoryCount} Inventory entries                                ║`);
+  console.log('║  • 5 Warranties (1 expired, 1 critical, 1 expiring soon) ║');
+  console.log('║  • 3 Subscriptions (1 expiring soon)                     ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║  LOGIN CREDENTIALS:                                      ║');
+  console.log('║                                                          ║');
+  console.log('║  Admin:      admin@college.edu       / admin123          ║');
+  console.log('║  IT Dept:    itdept@college.edu      / dept123           ║');
+  console.log('║  HR Dept:    hrdept@college.edu      / dept123           ║');
+  console.log('║  Watchman:   watchman@college.edu    / watch123          ║');
+  console.log('║  Accountant: accountant@college.edu  / acc123            ║');
+  console.log('║                                                          ║');
+  console.log('║  Vendor 1:   vendor1@techsupply.com  / vendor123         ║');
+  console.log('║  Vendor 2:   vendor2@officeworld.com / vendor123         ║');
+  console.log('║  Vendor 3:   vendor3@printmaster.com / vendor123         ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║  ALERTS SEEDED FOR TESTING:                              ║');
+  console.log('║  • Projector warranty expires in 25 days                 ║');
+  console.log('║  • Cisco Switch warranty expires in 8 days (critical)    ║');
+  console.log('║  • HP Printer warranty already expired                   ║');
+  console.log('║  • Microsoft 365 subscription expires in 20 days         ║');
+  console.log('║  • Some items have LOW STOCK (marker sets, webcams etc)  ║');
+  console.log('╚══════════════════════════════════════════════════════════╝');
+  console.log('');
+  console.log('You can now log in and start creating Purchase Requests!');
+  console.log('');
 }
 
 seed()
-  .catch(console.error)
+  .catch((e) => {
+    console.error('Seeding failed:', e.message);
+    console.error(e.stack);
+    process.exit(1);
+  })
   .finally(() => prisma.$disconnect());

@@ -1,10 +1,22 @@
-import { BrowserRouter } from 'react-router-dom'
-import AppRouter from './router'
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { FeedbackProvider } from './components/ui/Feedback';
+import ErrorBoundary from './components/ErrorBoundary';
+import AppRouter from './router';
 
-export default function App() {
+function App() {
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppRouter />
-    </BrowserRouter>
-  )
+    <ErrorBoundary>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AuthProvider>
+          <FeedbackProvider>
+            <AppRouter />
+          </FeedbackProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
+  );
 }
+
+export default App;

@@ -1,14 +1,7 @@
-import { create } from 'zustand'
+/**
+ * Auth state is consolidated in `context/AuthContext.jsx`.
+ * Do not add a Zustand auth store here.
+ * Use: import { useAuth } from '../context/AuthContext'
+ */
 
-const useAuthStore = create((set) => ({
-  user: null,
-  token: null,
-  setAuth: (user, token) => {
-    set({ user, token })
-  },
-  logout: () => {
-    set({ user: null, token: null })
-  },
-}))
-
-export default useAuthStore
+export {};

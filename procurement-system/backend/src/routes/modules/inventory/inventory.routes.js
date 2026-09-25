@@ -6,10 +6,11 @@
 import { Router } from 'express';
 import { getAll, getLowStock, getById, adjust, getDashboardStats } from './inventory.controller.js';
 import { authMiddleware } from '../../../middleware/auth.middleware.js';
-import { rbac } from '../../../middleware/rbac.middleware.js';
+import { blockVendor, rbac } from '../../../middleware/rbac.middleware.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(blockVendor);
 
 router.get('/stats', getDashboardStats);
 router.get('/low-stock', getLowStock);

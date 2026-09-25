@@ -1,159 +1,128 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X } from 'lucide-react';
-import { purchaseOrdersApi, purchaseRequestsApi, vendorsApi, productsApi } from '../../api/index.js';
+import { useEffect, useMemo, useState } from 'react';
+import { FileText, IndianRupee, Truck, Clock, CheckCircle2, Download, Filter } from 'lucide-react';
+import api from '../../api/axios';
+import { PageHeader, StatCard, DataTable, SearchInput, FilterChips, StatusBadge, KV, Avatar, Button, ErrorState } from '../../components/ui';
+import { fmtINR, fmtDate, fmtDateTime, dataOf, errMsg, downloadCsv } from '../../lib/utils';
+import { statusMeta } from '../../lib/status';
 
 export default function PurchaseOrderPage() {
   const [orders, setOrders] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [approvedRequests, setApprovedRequests] = useState([]);
-  const [vendors, setVendors] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({ requestId: '', vendorId: '', expectedDelivery: '', items: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
 
-  useEffect(() => { fetchData(); }, []);
-
-  const fetchData = async () => {
-    purchaseOrdersApi.getAll().then(r => r?.data && setOrders(r.data)).catch(() => {});
-    purchaseRequestsApi.getAll({ status: 'Approved' }).then(r => {
-      if (r?.data) setApprovedRequests(r.data.filter(req => req.status === 'Approved'));
-    }).catch(() => {});
-    vendorsApi.getAll().then(r => r?.data && setVendors(r.data.filter(v => v.status === 'Active'))).catch(() => {});
-    productsApi.getAll().then(r => r?.data && setProducts(r.data)).catch(() => {});
-  };
-
-  const statusStyle = { Draft: 'bg-slate-100 text-slate-700', Sent: 'bg-blue-100 text-blue-700', Acknowledged: 'bg-indigo-100 text-indigo-700', Completed: 'bg-emerald-100 text-emerald-700', Cancelled: 'bg-red-100 text-red-700' };
-
-  const handleSelectRequest = (requestId) => {
-    const req = approvedRequests.find(r => r.id === parseInt(requestId));
-    const newItems = req ? req.items.map(i => ({
-      productId: i.productId,
-      productName: i.product?.name || '',
-      quantityOrdered: i.quantity,
-      priceEach: i.product?.price || 0,
-    })) : [];
-    setForm({ ...form, requestId, items: newItems });
-  };
-
-  const updateFormItem = (i, field, val) => {
-    const updated = [...form.items];
-    updated[i][field] = parseFloat(val) || 0;
-    setForm({ ...form, items: updated });
-  };
-
-  const handleCreate = async () => {
-    if (!form.requestId || !form.vendorId || form.items.length === 0) return;
+  const load = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      await purchaseOrdersApi.create({
-        requestId: parseInt(form.requestId),
-        vendorId: parseInt(form.vendorId),
-        expectedDelivery: form.expectedDelivery || undefined,
-        items: form.items.map(i => ({ productId: i.productId, quantityOrdered: i.quantityOrdered, priceEach: i.priceEach })),
-      });
-      setShowForm(false);
-      setForm({ requestId: '', vendorId: '', expectedDelivery: '', items: [] });
-      fetchData();
-    } catch (err) { console.error(err); }
+      const r = await api.get('/purchase-orders');
+      setOrders(dataOf(r));
+    } catch (e) {
+      setError(errMsg(e, 'Failed to load purchase orders'));
+    } finally {
+      setLoading(false);
+    }
   };
+  useEffect(() => {
+    load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalAmount = form.items.reduce((s, i) => s + i.quantityOrdered * i.priceEach, 0);
+  const counts = useMemo(() => {
+    const c = { all: orders.length };
+    orders.forEach((o) => {
+      c[o.status] = (c[o.status] || 0) + 1;
+    });
+    return c;
+  }, [orders]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (status !== 'all' && o.status !== status) return false;
+      if (!q) return true;
+      return [o.po_number, o.vendor?.vendor_name, o.status].some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }, [orders, search, status]);
+
+  const total = orders.reduce((a, o) => a + Number(o.total_amount || 0), 0);
+
+  const columns = [
+    { key: 'po_number', header: 'PO number', render: (o) => <span className="font-mono text-[12.5px] font-semibold text-brand-700">{o.po_number}</span> },
+    { key: 'vendor', header: 'Vendor', sortValue: (o) => o.vendor?.vendor_name, render: (o) => (
+      <div className="flex items-center gap-2.5">
+        <Avatar name={o.vendor?.vendor_name} size="sm" />
+        <span className="font-medium text-slate-800">{o.vendor?.vendor_name || '—'}</span>
+      </div>
+    ) },
+    { key: 'items', header: 'Items', hideBelow: 'md', sortable: false, render: (o) => <span className="text-slate-600">{o.items?.length ?? o.order_items?.length ?? '—'}</span> },
+    { key: 'total_amount', header: 'Amount', align: 'right', sortValue: (o) => Number(o.total_amount || 0), render: (o) => <span className="tabular font-semibold text-slate-900">{fmtINR(o.total_amount)}</span> },
+    { key: 'status', header: 'Status', render: (o) => <StatusBadge status={o.status} /> },
+    { key: 'order_date', header: 'Ordered', hideBelow: 'lg', sortValue: (o) => new Date(o.order_date).getTime(), render: (o) => <span className="text-xs text-slate-500">{fmtDate(o.order_date)}</span> },
+    { key: 'expected_delivery', header: 'Expected', hideBelow: 'lg', render: (o) => <span className="text-xs text-slate-500">{o.expected_delivery ? fmtDate(o.expected_delivery) : '—'}</span> },
+  ];
+
+  if (error) return <ErrorState message={error} onRetry={load} />;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-display font-bold text-slate-800">Purchase Orders</h2>
-        <button onClick={() => setShowForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Create PO
-        </button>
+    <div className="space-y-6">
+      <PageHeader
+        title="Purchase Orders"
+        subtitle="The PO register — one record per confirmed order, with vendor, value and delivery status."
+        icon={FileText}
+        actions={<Button variant="secondary" icon={Download} disabled={!filtered.length} onClick={() => downloadCsv('purchase-orders.csv', ['PO Number', 'Vendor', 'Amount', 'Status', 'Order Date', 'Expected Delivery'], filtered.map((o) => [o.po_number, o.vendor?.vendor_name, o.total_amount, o.status, o.order_date, o.expected_delivery]))}>Export</Button>}
+      />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard index={0} loading={loading} label="Purchase orders" value={orders.length} icon={FileText} tone="brand" active={status === 'all'} onClick={() => setStatus('all')} />
+        <StatCard index={1} loading={loading} label="Total value" value={fmtINR(total)} icon={IndianRupee} tone="emerald" />
+        <StatCard index={2} loading={loading} label="Open" value={(counts.pending || 0) + (counts.sent || 0) + (counts.approved || 0) + (counts.partial || 0)} icon={Clock} tone="amber" />
+        <StatCard index={3} loading={loading} label="Received" value={(counts.received || 0) + (counts.completed || 0)} icon={CheckCircle2} tone="violet" />
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead><tr className="bg-slate-50/80">
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Order #</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Vendor</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Items</th>
-            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Amount</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
-          </tr></thead>
-          <tbody className="divide-y divide-slate-50">
-            {orders.map(po => (
-              <tr key={po.id} className="hover:bg-slate-50/50">
-                <td className="px-6 py-3.5 font-medium text-blue-600">{po.orderNo}</td>
-                <td className="px-6 py-3.5 text-slate-700">{po.vendor?.name}</td>
-                <td className="px-6 py-3.5 text-slate-600 text-xs">{po.items?.map(i => `${i.product?.name} ×${i.quantityOrdered}`).join(', ')}</td>
-                <td className="px-6 py-3.5 text-right font-medium">₹{Number(po.totalAmount).toLocaleString('en-IN')}</td>
-                <td className="px-6 py-3.5"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${statusStyle[po.status] || ''}`}>{po.status}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {orders.length === 0 && <div className="px-6 py-12 text-center text-slate-400">No purchase orders yet</div>}
+      <div className="surface p-3 sm:p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search PO number or vendor…" className="flex-1" />
+        <FilterChips value={status} onChange={setStatus} options={[{ value: 'all', label: 'All', count: counts.all }, ...Object.keys(counts).filter((k) => k !== 'all').map((k) => ({ value: k, label: statusMeta(k).label, count: counts[k] }))]} />
       </div>
 
-      {/* Create PO Modal */}
-      <AnimatePresence>
-        {showForm && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl my-8">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-display font-bold text-slate-800">Create Purchase Order</h3>
-                <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Approved Request *</label>
-                  <select value={form.requestId} onChange={e => handleSelectRequest(e.target.value)}
-                    className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">Select approved request...</option>
-                    {approvedRequests.map(r => <option key={r.id} value={r.id}>{r.requestNo} — {r.user?.name}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Vendor *</label>
-                    <select value={form.vendorId} onChange={e => setForm({ ...form, vendorId: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">Select vendor...</option>
-                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">Expected Delivery</label>
-                    <input type="date" value={form.expectedDelivery} onChange={e => setForm({ ...form, expectedDelivery: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                </div>
-
-                {form.items.length > 0 && (
-                  <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">Order Items</label>
-                    {form.items.map((item, i) => (
-                      <div key={i} className="flex items-center gap-2 mb-2 text-sm">
-                        <span className="flex-1 text-slate-700">{item.productName}</span>
-                        <input type="number" value={item.quantityOrdered} onChange={e => updateFormItem(i, 'quantityOrdered', e.target.value)} min="1"
-                          className="w-16 px-2 py-1.5 rounded-lg border border-slate-200 text-center text-sm" />
-                        <span className="text-slate-400">×</span>
-                        <input type="number" value={item.priceEach} onChange={e => updateFormItem(i, 'priceEach', e.target.value)}
-                          className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 text-sm" />
-                      </div>
+      <DataTable
+        columns={columns}
+        rows={filtered}
+        rowKey="order_id"
+        loading={loading}
+        emptyIcon={orders.length ? Filter : Truck}
+        emptyTitle={orders.length ? 'No orders match' : 'No purchase orders yet'}
+        emptyDescription={orders.length ? 'Adjust the filters.' : 'Purchase orders are generated from approved requests and vendor selections.'}
+        footer={<span>{filtered.length} of {orders.length}</span>}
+        expandable={(o) => (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <KV label="Created by" value={o.creator?.name || o.created_by_user?.name || '—'} />
+              <KV label="Ordered" value={fmtDateTime(o.order_date)} />
+              <KV label="Expected delivery" value={o.expected_delivery ? fmtDate(o.expected_delivery) : '—'} />
+              <KV label="Linked request" value={o.request?.pr_number || '—'} mono />
+            </div>
+            {(o.items || o.order_items)?.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <table className="ui-table">
+                  <thead><tr><th className="!static">Product</th><th className="!static text-right">Qty</th><th className="!static text-right">Unit price</th><th className="!static text-right">Line total</th></tr></thead>
+                  <tbody>
+                    {(o.items || o.order_items).map((it, i) => (
+                      <tr key={it.item_id || i}>
+                        <td>{it.product?.name || it.description || '—'}</td>
+                        <td className="text-right tabular">{it.quantity}</td>
+                        <td className="text-right tabular">{fmtINR(it.unit_price)}</td>
+                        <td className="text-right tabular font-medium">{fmtINR(Number(it.unit_price || 0) * Number(it.quantity || 0))}</td>
+                      </tr>
                     ))}
-                    <div className="text-right font-bold text-slate-800 mt-2 pt-2 border-t border-slate-100">
-                      Total: ₹{totalAmount.toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                )}
+                  </tbody>
+                </table>
               </div>
-              <div className="flex gap-3 mt-6">
-                <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-                <button onClick={handleCreate} disabled={!form.requestId || !form.vendorId}
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">Create Order</button>
-              </div>
-            </motion.div>
+            )}
+            {o.notes && <p className="text-sm text-slate-600"><span className="font-semibold">Notes:</span> {o.notes}</p>}
           </div>
         )}
-      </AnimatePresence>
-    </motion.div>
+      />
+    </div>
   );
 }

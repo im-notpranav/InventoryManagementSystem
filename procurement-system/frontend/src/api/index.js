@@ -12,6 +12,8 @@ export const inventoryApi = {
   getAll: () => api.get('/inventory'),
   getLowStock: () => api.get('/inventory/low-stock'),
   getStats: () => api.get('/inventory/stats'),
+  getSummary: () => api.get('/inventory/summary'),
+  create: (data) => api.post('/inventory', data),
   update: (id, data) => api.put(`/inventory/${id}`, data),
 };
 
@@ -55,6 +57,10 @@ export const rfqApi = {
   getQuotations: (rfqId) => api.get(`/rfq/${rfqId}/quotations`),
   submitQuotation: (data) => api.post('/rfq/quotations', data),
   selectQuotation: (quotationId, data) => api.post(`/rfq/quotations/${quotationId}/select`, data),
+  sendInvite: (data) => api.post('/rfq/send', data),
+  resendInvite: (quoteId) => api.post(`/rfq/${quoteId}/resend`),
+  compareQuotes: (requestId) => api.get(`/rfq/compare/${requestId}`),
+  selectQuote: (quoteId) => api.post(`/rfq/${quoteId}/select`),
 };
 
 export const purchaseOrdersApi = {
@@ -62,6 +68,8 @@ export const purchaseOrdersApi = {
   getById: (id) => api.get(`/purchase-orders/${id}`),
   create: (data) => api.post('/purchase-orders', data),
   update: (id, data) => api.put(`/purchase-orders/${id}`, data),
+  getChangeRequests: (params) => api.get('/po-change-requests', { params }),
+  reviewChangeRequest: (id, data) => api.put(`/po-change-requests/${id}/review`, data),
 };
 
 export const goodsReceiptsApi = {
@@ -82,14 +90,12 @@ export const warrantiesApi = {
   getExpiring: () => api.get('/warranties/expiring'),
   create: (data) => api.post('/warranties', data),
   update: (id, data) => api.put(`/warranties/${id}`, data),
+  remove: (id) => api.delete(`/warranties/${id}`),
 };
 
 export const subscriptionsApi = {
-  getAll: () => api.get('/warranties/subscriptions'),
-  getExpiring: () => api.get('/warranties/subscriptions/expiring'),
-  create: (data) => api.post('/warranties/subscriptions', data),
-  update: (id, data) => api.put(`/warranties/subscriptions/${id}`, data),
-  remove: (id) => api.delete(`/warranties/subscriptions/${id}`),
+  getAll: () => api.get('/subscriptions'),
+  create: (data) => api.post('/subscriptions', data),
 };
 
 export const notificationsApi = {
@@ -101,15 +107,34 @@ export const notificationsApi = {
 export const usersApi = {
   getAll: () => api.get('/users'),
   getById: (id) => api.get(`/users/${id}`),
+  create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
+  resetPassword: (id, new_password) =>
+    api.put(`/users/${id}/reset-password`, { new_password }),
+  changePassword: (id, new_password) =>
+    api.put(`/users/${id}/change-password`, { new_password }),
+  changeEmail: (id, new_email) =>
+    api.put(`/users/${id}/change-email`, { new_email }),
+  changeMyPassword: (current_password, new_password) =>
+    api.put('/users/change-my-password', { current_password, new_password }),
+  changeMyEmail: (current_password, new_email) =>
+    api.put('/users/me/change-email', { current_password, new_email }),
   remove: (id) => api.delete(`/users/${id}`),
   getAuditLogs: (query = '') => api.get(`/users/audit-logs${query ? `?${query}` : ''}`),
-  getRoles: () => api.get('/users/roles'),
+};
+
+export const rolesApi = {
+  getAll: () => api.get('/roles'),
 };
 
 export const chatbotApi = {
-  query: (message) => api.post('/chatbot/query', { message }),
-  getHistory: () => api.get('/chatbot/history'),
+  query: (payload) => {
+    if (typeof payload === 'string') {
+      return api.post('/chatbot/message', { message: payload, conversation_history: [] });
+    }
+    return api.post('/chatbot/message', payload);
+  },
+  getHistory: () => Promise.resolve({ success: true, data: [] }),
 };
 
 export const vendorPortalApi = {
@@ -120,4 +145,8 @@ export const vendorPortalApi = {
   rejectOrder: (orderId, data) => api.post(`/vendor-portal/orders/${orderId}/reject`, data),
   requestChanges: (orderId, data) => api.post(`/vendor-portal/orders/${orderId}/request-changes`, data),
   getHistory: (orderId) => api.get(`/vendor-portal/orders/${orderId}/history`),
+  createPOChangeRequest: (data) => api.post('/po-change-requests', data),
+  getMyPOChangeRequests: () => api.get('/po-change-requests/mine'),
 };
+
+export default api;

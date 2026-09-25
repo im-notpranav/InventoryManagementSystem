@@ -6,12 +6,30 @@ import {
   FileText, AlertTriangle, Truck, Calendar, DollarSign
 } from 'lucide-react';
 import api from '../../api/axios';
-import useAuthStore from '../../store/auth.store';
+import { useAuth } from '../../context/AuthContext';
+
+const getApiPayload = (response, fallback) => {
+  if (response && typeof response === 'object' && 'success' in response) {
+    return response.data ?? fallback;
+  }
+
+  if (response && typeof response === 'object' && 'data' in response) {
+    const payload = response.data;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return payload.data ?? fallback;
+    }
+    return payload ?? fallback;
+  }
+
+  return response ?? fallback;
+};
+
+const getApiErrorMessage = (error, fallback) => error?.message || fallback;
 
 export default function VendorPortalPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
+  const { user } = useAuth();
   
   // Orders state
   const [orders, setOrders] = useState([]);
@@ -44,11 +62,11 @@ export default function VendorPortalPage() {
   const fetchProfile = async () => {
     try {
       const res = await api.get('/vendor-portal/profile');
-      setVendorProfile(res.data?.data || null);
+      setVendorProfile(getApiPayload(res, null));
       setError(null);
     } catch (err) {
       console.error('Failed to fetch profile:', err);
-      setError(err.response?.data?.message || 'Failed to load vendor profile');
+      setError(getApiErrorMessage(err, 'Failed to load vendor profile'));
     }
   };
 
@@ -56,11 +74,11 @@ export default function VendorPortalPage() {
     setLoading(true);
     try {
       const res = await api.get('/vendor-portal/orders');
-      setOrders(res.data?.data || []);
+      setOrders(getApiPayload(res, []));
       setError(null);
     } catch (err) {
       console.error('Failed to fetch orders:', err);
-      setError(err.response?.data?.message || 'Failed to load orders');
+      setError(getApiErrorMessage(err, 'Failed to load orders'));
     } finally {
       setLoading(false);
     }
@@ -69,7 +87,7 @@ export default function VendorPortalPage() {
   const fetchOrderDetails = async (id) => {
     try {
       const res = await api.get(`/vendor-portal/orders/${id}`);
-      setSelectedOrder(res.data?.data || null);
+      setSelectedOrder(getApiPayload(res, null));
     } catch (err) {
       console.error('Failed to fetch order details:', err);
     }
@@ -86,7 +104,7 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to reject order');
+      alert(getApiErrorMessage(err, 'Failed to reject order'));
     }
   };
 
@@ -101,7 +119,7 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to request changes');
+      alert(getApiErrorMessage(err, 'Failed to request changes'));
     }
   };
 
@@ -118,7 +136,7 @@ export default function VendorPortalPage() {
       fetchOrders();
       fetchOrderDetails(selectedOrder.id);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to confirm order');
+      alert(getApiErrorMessage(err, 'Failed to confirm order'));
     }
   };
 

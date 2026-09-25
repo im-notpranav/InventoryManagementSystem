@@ -1,22 +1,26 @@
 import prisma from '../../../config/db.js';
 import { sendSuccess, sendError } from '../../../utils/response.js';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 
-const generateTemporaryPassword = () => crypto.randomBytes(12).toString('base64url');
+// Default password for newly created vendor accounts.
+// Vendors should change this after first login.
+const DEFAULT_VENDOR_PASSWORD = 'vendor123';
 
 export const getAll = async (req, res, next) => {
   try {
     const vendors = await prisma.vendor.findMany({ 
       orderBy: { createdAt: 'desc' },
       include: {
-        users: {
+        user: {
           select: { id: true, email: true, name: true }
         }
       }
     });
     return sendSuccess(res, vendors);
-  } catch (error) { next(error); }
+  } catch (error) { 
+    console.error('getAll vendors error:', error);
+    next(error); 
+  }
 };
 
 export const getById = async (req, res, next) => {
@@ -25,7 +29,7 @@ export const getById = async (req, res, next) => {
       where: { id: parseInt(req.params.id) },
       include: { 
         purchaseOrders: { take: 10, orderBy: { createdAt: 'desc' } },
-        users: { select: { id: true, email: true, name: true } }
+        user: { select: { id: true, email: true, name: true } }
       },
     });
     if (!vendor) return sendError(res, 'Vendor not found.', 404);
@@ -59,9 +63,8 @@ export const create = async (req, res, next) => {
       return sendError(res, 'Vendor role not found. Please seed roles first.', 500);
     }
 
-    // Create a one-time temporary password for first login.
-    const temporaryPassword = generateTemporaryPassword();
-    const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
+    // Use the known default password for vendor accounts
+    const hashedPassword = await bcrypt.hash(DEFAULT_VENDOR_PASSWORD, 12);
 
     // Create vendor AND user account in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -108,7 +111,8 @@ export const create = async (req, res, next) => {
       ...result.vendor,
       userAccount: {
         email: result.user.email,
-        message: 'Vendor user account created. Share initial access through a secure channel and rotate credentials on first login.',
+        defaultPassword: DEFAULT_VENDOR_PASSWORD,
+        message: `Vendor can login with email: ${result.user.email} and password: ${DEFAULT_VENDOR_PASSWORD}. They should change it after first login.`,
       }
     }, 'Vendor created with login account.', 201);
   } catch (error) { 
@@ -125,7 +129,7 @@ export const update = async (req, res, next) => {
     // Get current vendor
     const currentVendor = await prisma.vendor.findUnique({
       where: { id: vendorId },
-      include: { users: true }
+      include: { user: true }
     });
 
     if (!currentVendor) {
@@ -139,17 +143,17 @@ export const update = async (req, res, next) => {
     });
 
     // If email changed, update user account email too
-    if (email && email !== currentVendor.email && currentVendor.users.length > 0) {
-      await prisma.user.updateMany({
-        where: { vendorId: vendorId },
+    if (email && email !== currentVendor.email && currentVendor.user) {
+      await prisma.user.update({
+        where: { id: currentVendor.user.id },
         data: { email: email },
       });
     }
 
     // If name changed, update user account name too
-    if (name && name !== currentVendor.name && currentVendor.users.length > 0) {
-      await prisma.user.updateMany({
-        where: { vendorId: vendorId },
+    if (name && name !== currentVendor.name && currentVendor.user) {
+      await prisma.user.update({
+        where: { id: currentVendor.user.id },
         data: { name: name },
       });
     }
@@ -185,7 +189,7 @@ export const createUserAccount = async (req, res, next) => {
     
     const vendor = await prisma.vendor.findUnique({
       where: { id: vendorId },
-      include: { users: true }
+      include: { user: true }
     });
 
     if (!vendor) {
@@ -193,7 +197,7 @@ export const createUserAccount = async (req, res, next) => {
     }
 
     // Check if vendor already has a user account
-    if (vendor.users.length > 0) {
+    if (vendor.user) {
       return sendError(res, 'Vendor already has a user account.', 400);
     }
 
@@ -209,8 +213,7 @@ export const createUserAccount = async (req, res, next) => {
       return sendError(res, 'A user with this email already exists.', 400);
     }
 
-    const temporaryPassword = generateTemporaryPassword();
-    const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
+    const hashedPassword = await bcrypt.hash(DEFAULT_VENDOR_PASSWORD, 12);
 
     const user = await prisma.user.create({
       data: {
@@ -226,6 +229,8 @@ export const createUserAccount = async (req, res, next) => {
 
     return sendSuccess(res, {
       user: { id: user.id, email: user.email, name: user.name },
+      defaultPassword: DEFAULT_VENDOR_PASSWORD,
+      message: `Vendor can login with email: ${user.email} and password: ${DEFAULT_VENDOR_PASSWORD}`,
     }, 'User account created for vendor.');
   } catch (error) { next(error); }
 };
@@ -243,7 +248,7 @@ export const syncAllVendorAccounts = async (req, res, next) => {
     const vendorsWithoutAccounts = await prisma.vendor.findMany({
       where: {
         status: 'Active',
-        users: { none: {} }
+        user: null
       },
     });
 
@@ -258,8 +263,7 @@ export const syncAllVendorAccounts = async (req, res, next) => {
         continue;
       }
 
-      const temporaryPassword = generateTemporaryPassword();
-      const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
+      const hashedPassword = await bcrypt.hash(DEFAULT_VENDOR_PASSWORD, 12);
       await prisma.user.create({
         data: {
           name: vendor.name,

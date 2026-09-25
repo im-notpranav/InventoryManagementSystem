@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant Employee
+    participant Backend
+    participant DB
+    participant Vendor
+    participant Accounts
+
+    Employee->>Backend: Submit PR
+    Backend->>DB: Save PR
+    Employee->>Backend: Approve PR
+    Backend->>DB: Update PR
+    Backend->>Vendor: Send RFQ
+    Vendor->>Backend: Submit Quotations
+    Backend->>DB: Save Quotes
+    Employee->>Backend: Select Vendor
+    Backend->>DB: Generate PO
+    Backend->>Vendor: Send PO Alert
+    Vendor->>Backend: Fulfill PO
+    Employee->>Backend: Create Goods Receipt
+    Backend->>DB: Update Inventory
+    Vendor->>Backend: Submit Invoice
+    Backend->>DB: 3-Way Match Validation
+    DB-->>Backend: Result Verified
+    Backend->>Accounts: Flag for Payment

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Plus, X, Send, Check, Clock, Award, AlertCircle, Users, UserPlus } from 'lucide-react';
+import { FileText, Plus, X, Send, Check, Clock, Award, AlertCircle, Users, UserPlus, RefreshCw } from 'lucide-react';
 import { rfqApi, purchaseRequestsApi, vendorsApi } from '../../api/index.js';
 
 export default function RFQPage() {
@@ -11,6 +11,8 @@ export default function RFQPage() {
   const [showCompareModal, setShowCompareModal] = useState(null); // rfq object
   const [approvedRequests, setApprovedRequests] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [form, setForm] = useState({ requestId: '', vendorIds: [], deadline: '', notes: '' });
   const [addVendorIds, setAddVendorIds] = useState([]);
   const [quoteForm, setQuoteForm] = useState({ vendorId: '', deliveryDays: '', validUntil: '', terms: '', notes: '', items: [] });
@@ -18,11 +20,42 @@ export default function RFQPage() {
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
-    rfqApi.getAll().then(r => r?.data && setRFQs(r.data)).catch(() => {});
-    purchaseRequestsApi.getAll({ status: 'Approved' }).then(r => {
-      if (r?.data) setApprovedRequests(r.data.filter(req => req.status === 'Approved'));
-    }).catch(() => {});
-    vendorsApi.getAll().then(r => r?.data && setVendors(r.data.filter(v => v.status === 'Active'))).catch(() => {});
+    setLoading(true);
+    setError('');
+    
+    // Fetch RFQs (don't let failure block other fetches)
+    try {
+      const rfqRes = await rfqApi.getAll();
+      console.log('RFQ response:', rfqRes);
+      setRFQs(rfqRes?.data || []);
+    } catch (err) {
+      console.error('Failed to fetch RFQs:', err);
+      // Don't set error here, just log it - RFQ list might be empty
+    }
+
+    // Fetch approved purchase requests
+    try {
+      const prRes = await purchaseRequestsApi.getAll({ status: 'Approved' });
+      console.log('PR response:', prRes);
+      const allRequests = prRes?.data || [];
+      setApprovedRequests(allRequests.filter(req => req.status === 'Approved'));
+    } catch (err) {
+      console.error('Failed to fetch purchase requests:', err);
+    }
+
+    // Fetch vendors - this is critical for the modal
+    try {
+      const vendorRes = await vendorsApi.getAll();
+      console.log('Vendor response:', vendorRes);
+      const allVendors = vendorRes?.data || [];
+      setVendors(allVendors.filter(v => v.status === 'Active'));
+      console.log('Active vendors:', allVendors.filter(v => v.status === 'Active'));
+    } catch (err) {
+      console.error('Failed to fetch vendors:', err);
+      setError('Failed to load vendors. Please refresh.');
+    }
+    
+    setLoading(false);
   };
 
   const statusStyle = {
@@ -141,29 +174,50 @@ export default function RFQPage() {
           </h2>
           <p className="text-slate-500 text-sm mt-1">Collect vendor quotes before creating purchase orders</p>
         </div>
-        <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Send RFQ
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={fetchData} disabled={loading} className="text-slate-500 hover:text-blue-600 p-2.5 rounded-xl border border-slate-200 hover:bg-blue-50">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Send RFQ
+          </button>
+        </div>
       </div>
 
+      {/* Error message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 text-red-700">
+          <AlertCircle className="w-5 h-5" />
+          <span className="text-sm">{error}</span>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && rfqs.length === 0 && (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+          <span className="ml-3 text-slate-500">Loading RFQs...</span>
+        </div>
+      )}
+
       {/* RFQ List */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
           <thead><tr className="bg-slate-50/80">
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">RFQ #</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Request</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Items</th>
-            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Vendors</th>
-            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Quotes</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Deadline</th>
-            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
-            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Actions</th>
+            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">RFQ #</th>
+            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Request</th>
+            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Items</th>
+            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Vendors</th>
+            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Quotes</th>
+            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Deadline</th>
+            <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Status</th>
+            <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
             {rfqs.map(rfq => (
               <tr key={rfq.id} className="hover:bg-slate-50/50">
                 <td className="px-6 py-3.5 font-medium text-blue-600">{rfq.rfqNo}</td>
-                <td className="px-6 py-3.5 text-slate-700">{rfq.request?.requestNo}</td>
+                <td className="px-6 py-3.5 text-slate-700">{rfq.request?.pr_number || rfq.request?.requestNo}</td>
                 <td className="px-6 py-3.5 text-slate-600 text-xs max-w-[200px] truncate">
                   {rfq.request?.items?.map(i => i.product?.name || i.customProductName).join(', ')}
                 </td>
@@ -237,29 +291,35 @@ export default function RFQPage() {
                   <select value={form.requestId} onChange={e => setForm({ ...form, requestId: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">Select request...</option>
-                    {approvedRequests.map(r => <option key={r.id} value={r.id}>{r.requestNo} — {r.user?.name}</option>)}
+                    {approvedRequests.map(r => <option key={r.id} value={r.id}>{r.pr_number || r.requestNo} — {r.user?.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">Send to Vendors *</label>
                   <div className="mt-1 max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2">
-                    {vendors.map(v => (
-                      <label key={v.id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
-                        <input type="checkbox" checked={form.vendorIds.includes(v.id.toString())}
-                          onChange={e => {
-                            const id = v.id.toString();
-                            setForm({
-                              ...form,
-                              vendorIds: e.target.checked 
-                                ? [...form.vendorIds, id] 
-                                : form.vendorIds.filter(i => i !== id)
-                            });
+                    {vendors.length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 text-sm">
+                        No active vendors found. Please add vendors first.
+                      </div>
+                    ) : (
+                      vendors.map(v => (
+                        <label key={v.id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                          <input type="checkbox" checked={form.vendorIds.includes(v.id.toString())}
+                            onChange={e => {
+                              const id = v.id.toString();
+                              setForm({
+                                ...form,
+                                vendorIds: e.target.checked 
+                                  ? [...form.vendorIds, id] 
+                                  : form.vendorIds.filter(i => i !== id)
+                              });
                           }}
                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                         <span className="text-sm text-slate-700">{v.name}</span>
                         <span className="text-xs text-slate-400 ml-auto">⭐ {v.rating || 0}</span>
                       </label>
-                    ))}
+                    ))
+                    )}
                   </div>
                 </div>
                 <div>

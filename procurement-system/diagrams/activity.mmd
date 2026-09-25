@@ -1,0 +1,30 @@
+stateDiagram-v2
+    [*] --> Create_PR
+    Create_PR --> Manager_Approval
+    
+    Manager_Approval --> Rejected
+    Rejected --> [*]
+    
+    Manager_Approval --> RFQ_Process
+    RFQ_Process --> Vendor_Quotes
+    
+    Vendor_Quotes --> Compare_And_Select
+    Compare_And_Select --> Generate_PO
+    
+    Generate_PO --> Receive_Goods
+    Receive_Goods --> Update_Inventory
+    
+    Update_Inventory --> Submit_Invoice
+    Submit_Invoice --> Matching
+    
+    state Matching {
+        [*] --> Verify_Docs
+        Verify_Docs --> Success
+        Verify_Docs --> Fail
+    }
+    
+    Success --> Payment
+    Fail --> Discrepancy
+    Discrepancy --> Verify_Docs
+    
+    Payment --> [*]

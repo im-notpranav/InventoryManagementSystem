@@ -1,23 +1,7 @@
-export const sendSuccess = (res, data = null, message = 'Success', statusCode = 200) => {
-  return res.status(statusCode).json({
-    success: true,
-    message,
-    data,
-  });
-};
+const ok = (res, data, message = 'Success', status = 200) =>
+  res.status(status).json({ success: true, message, data });
 
-export const sendError = (res, message = 'Internal Server Error', statusCode = 500, errors = null) => {
-  return res.status(statusCode).json({
-    success: false,
-    message,
-    errors,
-  });
-};
+const fail = (res, message = 'Error', status = 400) =>
+  res.status(status).json({ success: false, message });
 
-export class AppError extends Error {
-  constructor(message, statusCode = 500) {
-    super(message);
-    this.statusCode = statusCode;
-    this.isOperational = true;
-  }
-}
+module.exports = { ok, fail };

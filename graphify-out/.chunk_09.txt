@@ -1,0 +1,12 @@
+procurement-system\frontend\src\pages\vendors\VendorsPage.jsx
+procurement-system\frontend\src\pages\warranties\Warranties.jsx
+procurement-system\frontend\src\pages\warranties\WarrantiesPage.jsx
+procurement-system\frontend\src\pages\work-orders\WorkOrders.jsx
+procurement-system\frontend\src\pages\workflow\WorkflowStatus.jsx
+procurement-system\frontend\src\store\auth.store.js
+procurement-system\frontend\src\store\chatbot.store.js
+procurement-system\frontend\src\store\hooks.js
+procurement-system\frontend\src\store\notification.store.js
+procurement-system\frontend\index.html
+procurement-system\frontend\README.md
+procurement-system\frontend\src\inventbot-login-demo.html

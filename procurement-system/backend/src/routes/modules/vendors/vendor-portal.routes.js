@@ -56,7 +56,7 @@ const requireVendor = async (req, res, next) => {
 };
 
 // ─── GET /profile ──────────────────────────────────────────────
-// Get vendor's profile info
+// Get vendor's profile info with comprehensive stats
 router.get('/profile', requireVendor, async (req, res) => {
   try {
     const vendor = await prisma.vendor.findUnique({
@@ -73,14 +73,34 @@ router.get('/profile', requireVendor, async (req, res) => {
       },
     });
 
-    // Count stats
-    const [totalOrders, pendingOrders, totalValue] = await Promise.all([
+    // Count all stats including RFQs and quotations
+    const [
+      totalOrders, 
+      pendingOrders, 
+      completedOrders,
+      totalValue,
+      totalRfqs,
+      pendingQuotations,
+      submittedQuotations,
+      selectedQuotations,
+    ] = await Promise.all([
       prisma.purchaseOrder.count({ where: { vendorId: req.vendorId } }),
-      prisma.purchaseOrder.count({ where: { vendorId: req.vendorId, status: { in: ['Sent', 'Draft'] } } }),
+      prisma.purchaseOrder.count({ where: { vendorId: req.vendorId, status: { in: ['Sent', 'Acknowledged'] } } }),
+      prisma.purchaseOrder.count({ where: { vendorId: req.vendorId, status: 'Completed' } }),
       prisma.purchaseOrder.aggregate({
         where: { vendorId: req.vendorId },
         _sum: { totalAmount: true },
       }),
+      prisma.rFQVendor.count({ where: { vendorId: req.vendorId } }),
+      prisma.rFQVendor.count({ 
+        where: { 
+          vendorId: req.vendorId, 
+          status: 'Invited',
+          rfq: { status: 'Open' }
+        } 
+      }),
+      prisma.quotation.count({ where: { vendorId: req.vendorId } }),
+      prisma.quotation.count({ where: { vendorId: req.vendorId, status: 'Selected' } }),
     ]);
 
     return sendSuccess(res, {
@@ -88,7 +108,12 @@ router.get('/profile', requireVendor, async (req, res) => {
       stats: {
         totalOrders,
         pendingOrders,
+        completedOrders,
         totalValue: totalValue._sum.totalAmount || 0,
+        totalRfqs,
+        pendingQuotations,
+        submittedQuotations,
+        selectedQuotations,
       },
       user: {
         id: req.user.id,
@@ -97,6 +122,7 @@ router.get('/profile', requireVendor, async (req, res) => {
       },
     });
   } catch (err) {
+    console.error('Profile fetch error:', err);
     return sendError(res, 'Failed to load vendor profile.', 500);
   }
 });
@@ -109,6 +135,8 @@ router.get('/orders', requireVendor, async (req, res) => {
 
     const where = { vendorId: req.vendorId };
     if (status) where.status = status;
+    
+    console.log('Fetching orders for vendor:', req.vendorId, 'with filter:', where);
 
     const orders = await prisma.purchaseOrder.findMany({
       where,
@@ -133,9 +161,12 @@ router.get('/orders', requireVendor, async (req, res) => {
       },
       orderBy: { createdAt: 'desc' },
     });
+    
+    console.log('Found orders:', orders.length);
 
     return sendSuccess(res, orders);
   } catch (err) {
+    console.error('Error fetching vendor orders:', err);
     return sendError(res, 'Failed to load orders.', 500);
   }
 });
@@ -224,7 +255,7 @@ router.post('/orders/:orderId/confirm', requireVendor, async (req, res) => {
       data: admins.map(admin => ({
         userId: admin.id,
         title: 'PO Confirmed',
-        message: `${req.vendorName} confirmed PO-${po.orderNo}`,
+        message: `${req.vendorName} confirmed ${po.po_number || po.orderNo}`,
         type: 'success',
         link: `/purchase-orders`,
       })),
@@ -285,7 +316,7 @@ router.post('/orders/:orderId/reject', requireVendor, async (req, res) => {
       data: admins.map(admin => ({
         userId: admin.id,
         title: 'PO Rejected by Vendor',
-        message: `${req.vendorName} rejected PO-${po.orderNo}: ${reason}`,
+        message: `${req.vendorName} rejected ${po.po_number || po.orderNo}: ${reason}`,
         type: 'error',
         link: `/purchase-orders`,
       })),
@@ -302,10 +333,25 @@ router.post('/orders/:orderId/reject', requireVendor, async (req, res) => {
 router.post('/orders/:orderId/request-changes', requireVendor, async (req, res) => {
   try {
     const orderId = parseInt(req.params.orderId);
-    const { message, suggestedPrice, suggestedDeliveryDate } = req.body;
+    const {
+      message,
+      requestedChanges,
+      reason,
+      requestedDelivery,
+      requestedTerms,
+      requestedItems,
+      suggestedPrice,
+      suggestedDeliveryDate,
+    } = req.body || {};
 
-    if (!message || message.trim().length < 10) {
+    const normalizedRequestedChanges = String(requestedChanges || message || '').trim();
+    const normalizedReason = String(reason || message || '').trim();
+
+    if (!normalizedRequestedChanges || normalizedRequestedChanges.length < 10) {
       return sendError(res, 'Please describe the requested changes (min 10 characters).', 400);
+    }
+    if (!normalizedReason || normalizedReason.length < 5) {
+      return sendError(res, 'Please provide a reason for the requested changes (min 5 characters).', 400);
     }
 
     const po = await prisma.purchaseOrder.findFirst({
@@ -320,10 +366,41 @@ router.post('/orders/:orderId/request-changes', requireVendor, async (req, res) 
       return sendError(res, `Cannot request changes for order with status "${po.status}".`, 400);
     }
 
-    // Build full message
-    let fullMessage = message;
-    if (suggestedPrice) fullMessage += ` [Suggested Price: ₹${suggestedPrice}]`;
-    if (suggestedDeliveryDate) fullMessage += ` [Suggested Delivery: ${suggestedDeliveryDate}]`;
+    const existingPending = await prisma.pOChangeRequest.findFirst({
+      where: {
+        purchaseOrderId: orderId,
+        vendorId: req.vendorId,
+        status: 'pending',
+      },
+    });
+    if (existingPending) {
+      return sendError(res, 'A pending change request already exists for this order.', 400);
+    }
+
+    const payloadRequestedItems = Array.isArray(requestedItems) ? requestedItems : [];
+    const normalizedItems = payloadRequestedItems
+      .map((item) => ({
+        productId: Number(item?.productId),
+        quantityOrdered: Number(item?.quantityOrdered),
+        priceEach: item?.priceEach !== undefined ? Number(item?.priceEach) : undefined,
+      }))
+      .filter((item) => Number.isInteger(item.productId) && Number.isFinite(item.quantityOrdered) && item.quantityOrdered > 0);
+
+    let requestedNotes = normalizedRequestedChanges;
+    if (suggestedPrice) requestedNotes += ` [Suggested Price: ₹${suggestedPrice}]`;
+    if (suggestedDeliveryDate) requestedNotes += ` [Suggested Delivery: ${suggestedDeliveryDate}]`;
+
+    const createdRequest = await prisma.pOChangeRequest.create({
+      data: {
+        purchaseOrderId: orderId,
+        vendorId: req.vendorId,
+        requestedChanges: requestedNotes,
+        reason: normalizedReason,
+        requestedDelivery: requestedDelivery || suggestedDeliveryDate ? new Date(requestedDelivery || suggestedDeliveryDate) : null,
+        requestedTerms: requestedTerms ? String(requestedTerms).trim() : null,
+        requestedItems: normalizedItems.length > 0 ? normalizedItems : null,
+      },
+    });
 
     // Update PO
     const updatedPO = await prisma.purchaseOrder.update({
@@ -337,7 +414,7 @@ router.post('/orders/:orderId/request-changes', requireVendor, async (req, res) 
         orderId,
         vendorId: req.vendorId,
         action: 'change_requested',
-        message: fullMessage,
+        message: requestedNotes,
       },
     });
 
@@ -351,13 +428,20 @@ router.post('/orders/:orderId/request-changes', requireVendor, async (req, res) 
       data: admins.map(admin => ({
         userId: admin.id,
         title: 'Vendor Requested Changes',
-        message: `${req.vendorName} requested changes to PO-${po.orderNo}`,
+        message: `${req.vendorName} requested changes to ${po.po_number || po.orderNo}`,
         type: 'warning',
         link: `/purchase-orders`,
       })),
     });
 
-    return sendSuccess(res, updatedPO, 'Change request submitted.');
+    return sendSuccess(
+      res,
+      {
+        purchaseOrder: updatedPO,
+        changeRequest: createdRequest,
+      },
+      'Change request submitted.'
+    );
   } catch (err) {
     return sendError(res, 'Failed to submit change request.', 500);
   }
@@ -429,7 +513,7 @@ router.post('/orders/:orderId/update-delivery', requireVendor, async (req, res) 
         data: admins.map(admin => ({
           userId: admin.id,
           title: status === 'delivered' ? 'Order Delivered' : 'Delivery Update',
-          message: `${req.vendorName}: PO-${po.orderNo} - ${status}`,
+          message: `${req.vendorName}: ${po.po_number || po.orderNo} - ${status}`,
           type: status === 'delivered' ? 'success' : 'info',
           link: '/purchase-orders',
         })),
@@ -450,6 +534,8 @@ router.post('/orders/:orderId/update-delivery', requireVendor, async (req, res) 
 // Vendors only see RFQs they are specifically invited to (not all RFQs)
 router.get('/rfqs', requireVendor, async (req, res) => {
   try {
+    console.log('Fetching RFQs for vendor:', req.vendorId);
+    
     // Get RFQs where this vendor is invited
     const rfqInvitations = await prisma.rFQVendor.findMany({
       where: { vendorId: req.vendorId },
@@ -478,6 +564,13 @@ router.get('/rfqs', requireVendor, async (req, res) => {
       orderBy: { invitedAt: 'desc' },
     });
 
+    console.log('Found RFQ invitations:', rfqInvitations.length);
+    console.log('Invitation details:', rfqInvitations.map(inv => ({
+      rfqId: inv.rfqId,
+      rfqStatus: inv.rfq?.status,
+      invStatus: inv.status
+    })));
+
     // Transform to include invitation status and whether vendor has quoted
     const rfqs = rfqInvitations
       .filter(inv => inv.rfq.status === 'Open') // Only show open RFQs
@@ -490,6 +583,7 @@ router.get('/rfqs', requireVendor, async (req, res) => {
         myQuotation: inv.rfq.quotations[0] || null,
       }));
 
+    console.log('Open RFQs for vendor:', rfqs.length);
     return sendSuccess(res, rfqs);
   } catch (err) {
     console.error('Error fetching vendor RFQs:', err);
@@ -847,7 +941,7 @@ router.get('/activity', requireVendor, async (req, res) => {
       where: { vendorId: req.vendorId },
       include: {
         order: {
-          select: { id: true, orderNo: true, totalAmount: true },
+          select: { id: true, orderNo: true, po_number: true, totalAmount: true },
         },
       },
       orderBy: { createdAt: 'desc' },

@@ -1,140 +1,75 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Package, Search, AlertTriangle, Edit2, X, Filter } from 'lucide-react';
-import { inventoryApi } from '../../api/index.js';
+import { Package, AlertTriangle } from 'lucide-react';
+import api from '../../api/axios';
 
 export default function InventoryPage() {
   const [inventory, setInventory] = useState([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [editItem, setEditItem] = useState(null);
 
-  useEffect(() => { fetchInventory(); }, []);
+  useEffect(() => {
+    api.get('/inventory').then(res => setInventory(res.data?.data || [])).catch(console.error).finally(() => setLoading(false));
+  }, []);
 
-  const fetchInventory = async () => {
-    try {
-      const res = await inventoryApi.getAll();
-      if (res?.data) setInventory(res.data);
-    } catch { setInventory([]); }
-    finally { setLoading(false); }
-  };
-
-  const filtered = inventory.filter(item =>
-    item.product?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    item.product?.sku?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const getStockStatus = (item) => {
-    if (item.quantity <= item.minimumStock) return { label: 'Critical', style: 'bg-red-100 text-red-700' };
-    if (item.quantity <= item.reorderPoint) return { label: 'Low', style: 'bg-amber-100 text-amber-700' };
-    return { label: 'In Stock', style: 'bg-emerald-100 text-emerald-700' };
-  };
-
-  const handleUpdate = async () => {
-    if (!editItem) return;
-    try {
-      await inventoryApi.update(editItem.id, {
-        quantity: editItem.quantity,
-        reorderPoint: editItem.reorderPoint,
-        minimumStock: editItem.minimumStock,
-        location: editItem.location,
-      });
-      setEditItem(null);
-      fetchInventory();
-    } catch (err) { console.error(err); }
-  };
+  if (loading) return <div className="flex justify-center py-20"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-800">Inventory Management</h2>
-          <p className="text-slate-500 text-sm mt-1">{inventory.length} items tracked</p>
-        </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..."
-            className="w-full pl-9 pr-4 py-2.5 text-sm bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
+        <p className="text-sm text-slate-500 mt-1">Monitor stock levels across warehouses</p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50/80">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Product</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">SKU</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Category</th>
-                <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Qty</th>
-                <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Reorder Pt</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Location</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
-                <th className="text-center px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {loading ? (
-                <tr><td colSpan="8" className="px-6 py-12 text-center text-slate-400">Loading...</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan="8" className="px-6 py-12 text-center text-slate-400">No items found</td></tr>
-              ) : filtered.map((item) => {
-                const status = getStockStatus(item);
-                return (
-                  <tr key={item.id} className="hover:bg-slate-50/50 transition">
-                    <td className="px-6 py-3.5 font-medium text-slate-800">{item.product?.name}</td>
-                    <td className="px-6 py-3.5 text-slate-500 font-mono text-xs">{item.product?.sku}</td>
-                    <td className="px-6 py-3.5 text-slate-600">{item.product?.category?.name || '-'}</td>
-                    <td className="px-6 py-3.5 text-center font-bold text-slate-800">{item.quantity}</td>
-                    <td className="px-6 py-3.5 text-center text-slate-500">{item.reorderPoint}</td>
-                    <td className="px-6 py-3.5 text-slate-600">{item.location || '-'}</td>
-                    <td className="px-6 py-3.5">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${status.style}`}>{status.label}</span>
-                    </td>
-                    <td className="px-6 py-3.5 text-center">
-                      <button onClick={() => setEditItem({ ...item })} className="text-blue-600 hover:text-blue-700">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Edit Modal */}
-      {editItem && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display font-bold text-slate-800">Edit Inventory</h3>
-              <button onClick={() => setEditItem(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
-            </div>
-            <p className="text-sm text-slate-500 mb-4">{editItem.product?.name}</p>
-            <div className="space-y-3">
-              {[
-                { label: 'Quantity', key: 'quantity', type: 'number' },
-                { label: 'Reorder Point', key: 'reorderPoint', type: 'number' },
-                { label: 'Minimum Stock', key: 'minimumStock', type: 'number' },
-                { label: 'Location', key: 'location', type: 'text' },
-              ].map(({ label, key, type }) => (
-                <div key={key}>
-                  <label className="text-sm font-medium text-slate-700">{label}</label>
-                  <input type={type} value={editItem[key] || ''} onChange={e => setEditItem({ ...editItem, [key]: type === 'number' ? parseInt(e.target.value) || 0 : e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {inventory.map(item => {
+          const isLow = item.quantity_available <= item.reorder_point;
+          return (
+            <motion.div key={`${item.product_id}-${item.warehouse_id}`}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              className={`bg-white rounded-2xl border p-5 transition hover:shadow-md ${isLow ? 'border-amber-300' : 'border-slate-200'}`}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: isLow ? '#fef3c7' : '#dbeafe' }}>
+                  {isLow ? <AlertTriangle className="w-5 h-5 text-amber-500" /> : <Package className="w-5 h-5 text-blue-500" />}
                 </div>
-              ))}
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditItem(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleUpdate} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">Save Changes</button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </motion.div>
+                {isLow && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Low Stock</span>}
+              </div>
+              <h3 className="font-semibold text-slate-800">{item.product?.name || 'Unknown'}</h3>
+              <p className="text-xs text-slate-400 mb-3">{item.product?.sku} · {item.warehouse?.name}</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <p className="text-lg font-bold text-slate-800">{item.quantity_available}</p>
+                  <p className="text-[10px] text-slate-400 uppercase">Available</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <p className="text-lg font-bold text-amber-600">{item.reorder_point}</p>
+                  <p className="text-[10px] text-slate-400 uppercase">Reorder</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <p className="text-lg font-bold text-slate-600">{item.min_stock}</p>
+                  <p className="text-[10px] text-slate-400 uppercase">Min</p>
+                </div>
+              </div>
+              {/* Stock bar */}
+              <div className="mt-3">
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, (item.quantity_available / (item.max_stock || 100)) * 100)}%`,
+                      background: isLow ? '#f59e0b' : '#3b82f6',
+                    }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                  <span>{item.min_stock} min</span>
+                  <span>{item.max_stock || '—'} max</span>
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
+        {inventory.length === 0 && (
+          <div className="col-span-full text-center py-12 text-slate-400">No inventory data available</div>
+        )}
+      </div>
+    </div>
   );
 }

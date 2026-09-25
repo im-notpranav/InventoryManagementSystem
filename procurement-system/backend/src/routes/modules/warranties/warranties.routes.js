@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { getAll, create, getExpiring, updateWarranty, getAllSubscriptions, getExpiringSubscriptions, createSubscription, updateSubscription, deleteSubscription } from './warranties.controller.js';
 import { authMiddleware } from '../../../middleware/auth.middleware.js';
-import { rbac } from '../../../middleware/rbac.middleware.js';
+import { blockVendor, rbac } from '../../../middleware/rbac.middleware.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(blockVendor);
 
 // Warranties
 router.get('/expiring', getExpiring);

@@ -1,50 +1,341 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --invent-bg: #f6f8fb;
+  --invent-card: #ffffff;
+  --invent-border: #e2e8f0;
+  --invent-primary: #1e3a5f;
+  --invent-primary-hover: #2e75b6;
+  --invent-accent: #2e75b6;
+  --invent-success: #16a34a;
+  --invent-warning: #f59e0b;
+  --invent-danger: #ef4444;
+  --invent-text: #0f172a;
+  --invent-text-secondary: #64748b;
+  --invent-text-muted: #94a3b8;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --transition-fast: all 0.15s ease;
+  --transition-med: all 0.2s ease;
+  /* react-bits Stepper reads this */
+  --border-primary: transparent;
+}
+
 @layer base {
-  body {
-    @apply bg-slate-50 text-slate-800 font-sans antialiased;
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
   }
-  * {
-    @apply border-slate-200;
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased text-slate-900;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: var(--invent-bg);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body.modal-open {
+    overflow: hidden;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Sora', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgba(46, 117, 182, 0.55);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: rgba(46, 117, 182, 0.18);
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    opacity: 0.4;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Surfaces */
+  .surface {
+    @apply bg-white border border-slate-200/80 rounded-2xl shadow-card;
+  }
+  .surface-hover {
+    @apply transition-all duration-300 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-slate-300/80;
+  }
+  .glass-panel {
+    @apply bg-white/70 backdrop-blur-xl border border-white/40 shadow-card;
+  }
+
+  /* Legacy names kept for any remaining callers */
+  .app-card {
+    @apply surface;
+  }
+  .app-input {
+    @apply ui-input;
+  }
+
+  /* Inputs */
+  .ui-input {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400
+      transition-[border-color,box-shadow,background-color] duration-200
+      hover:border-slate-300 hover:bg-white
+      focus:border-brand-500 focus:bg-white focus:shadow-glow focus:outline-none
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .ui-input-error {
+    @apply border-red-300 bg-red-50/40 focus:border-red-500 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.12)];
+  }
+  select.ui-input {
+    @apply appearance-none pr-10 bg-no-repeat;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+    background-position: right 0.85rem center;
+  }
+
+  /* Table */
+  /* The scroll wrapper is a query container so columns respond to the width the table
+     actually gets (a table in a narrow dashboard column, a modal, or a phone), not to the
+     viewport. Without this, `lg` columns stay visible inside a 620px panel and spill out. */
+  .ui-table-wrap {
+    container-type: inline-size;
+    container-name: uitable;
+  }
+  .ui-table {
+    @apply w-full text-sm border-separate border-spacing-0;
+  }
+  .ui-table thead th {
+    @apply sticky top-0 z-[1] bg-slate-50/95 backdrop-blur text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 px-4 py-3 border-b border-slate-200 whitespace-nowrap select-none;
+  }
+  .ui-table tbody td {
+    @apply px-4 py-3 border-b border-slate-100 text-slate-700 align-middle;
+  }
+  .ui-table tbody td .font-mono {
+    @apply whitespace-nowrap;
+  }
+
+  /* Columns marked `hideBelow` are hidden by default and revealed once the table's own
+     container is wide enough to hold them. */
+  .ui-table .col-md,
+  .ui-table .col-lg {
+    display: none;
+  }
+  @container uitable (min-width: 720px) {
+    .ui-table .col-md {
+      display: table-cell;
+    }
+  }
+  @container uitable (min-width: 1200px) {
+    .ui-table .col-lg {
+      display: table-cell;
+    }
+  }
+  /* Tighten gutters when the table is cramped so the remaining columns still fit. */
+  @container uitable (max-width: 640px) {
+    .ui-table {
+      @apply text-[13px];
+    }
+    .ui-table thead th,
+    .ui-table tbody td {
+      @apply px-2.5;
+    }
+  }
+  /* Secondary in-cell detail that is dropped when the table is cramped. */
+  @container uitable (max-width: 560px) {
+    .cq-wide-only {
+      display: none;
+    }
+  }
+  @container uitable (max-width: 460px) {
+    .ui-table thead th,
+    .ui-table tbody td {
+      @apply px-2 py-2.5;
+    }
+    /* Reference numbers are the widest thing in a cramped table — step them down a size
+       rather than letting them push the whole grid off-screen. */
+    .ui-table .font-mono {
+      font-size: 11px;
+    }
+    .ui-table thead th {
+      font-size: 10px;
+      letter-spacing: 0.04em;
+    }
+    /* Below ~460px there is no room for nowrap text columns: let names wrap to two lines
+       so the table can shrink to the container instead of scrolling sideways. */
+    .ui-table .cell-text,
+    .ui-table .cell-text > * {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      max-width: none;
+    }
+    .ui-table .cell-text > * {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .ui-table .cell-text:not(:has(> *)) {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    /* SKU lines inside a text cell may break too (outranks the td .font-mono nowrap rule). */
+    .ui-table tbody td .cell-text .font-mono {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+  /* Free-text cells get a fluid ceiling instead of a hard pixel width, so a long product
+     name truncates rather than stretching its table (or card) past the container.
+     Inside .ui-table-wrap the cqw resolves against the table; elsewhere it falls back to
+     the viewport, which gives the same sane behaviour on phones. */
+  .cell-text {
+    max-width: min(260px, 26cqw);
+    @apply truncate;
+  }
+  /* Used on a two-line wrapper (name + SKU): every line truncates inside the same bound. */
+  .cell-text > * {
+    @apply truncate;
+  }
+  .ui-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .ui-table tbody tr.is-clickable {
+    @apply cursor-pointer;
+  }
+  .ui-table tbody tr:hover td {
+    @apply bg-slate-50/70;
+  }
+
+  /* Chips */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 select-none;
+  }
+  .chip-idle {
+    @apply border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50;
+  }
+  .chip-active {
+    @apply border-brand-700 bg-brand-700 text-white shadow-sm;
+  }
+
+  /* Skeleton */
+  .skeleton {
+    @apply rounded-lg bg-[length:200%_100%] animate-shimmer;
+    background-image: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  }
+  .skeleton-card {
+    @apply skeleton;
+  }
+
+  /* Nav scrollbar hidden */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 
 @layer utilities {
-  .scrollbar-hide::-webkit-scrollbar { display: none; }
-  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .smooth-transition {
+    @apply transition-all duration-300 ease-in-out;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-/* Custom animations */
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-  50% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+.spin {
+  animation: spin 1s linear infinite;
 }
 
-@keyframes slide-up {
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-.animate-float { animation: float 3s ease-in-out infinite; }
-.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
-.animate-slide-up { animation: slide-up 0.3s ease-out; }
-
-/* Glassmorphism */
-.glass {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: 0.92; }
+}
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-5px); }
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes spin {
+  from { transform: rotate(0); }
+  to { transform: rotate(360deg); }
 }
 
-/* Selection */
-::selection {
-  background: rgba(59, 130, 246, 0.2);
-  color: #1e3a5f;
+/* Print: gate pass */
+@media print {
+  aside, header, #chatbot-toggle, #chatbot-window, .no-print { display: none !important; }
+  main { padding: 0 !important; }
 }

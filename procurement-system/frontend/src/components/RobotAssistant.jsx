@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 /*
  * RobotAssistant - Interactive SVG Robot
@@ -26,26 +26,27 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
 
   const headTilt = lookAt.x * 5;
 
-  const eyeHeight = blink ? 1 : mood === 'hiding' ? 0 : 14;
+  const eyeHeight = blink ? 1 : (mood === 'hiding' || mood === 'loading') ? 0 : 14;
   const eyeScale = mood === 'happy' ? 0.9 : mood === 'confused' ? 1.1 : 1;
 
   // Arm positions
-  const leftArmY = mood === 'hiding' ? -30 : mood === 'happy' ? -15 : 0;
-  const rightArmY = mood === 'hiding' ? -30 : mood === 'happy' ? -15 : 0;
-  const leftArmRotate = mood === 'hiding' ? -40 : mood === 'happy' ? -20 : 0;
-  const rightArmRotate = mood === 'hiding' ? 40 : mood === 'happy' ? 20 : 0;
+  const leftArmY = (mood === 'hiding' || mood === 'peeking') ? -30 : mood === 'happy' ? -15 : mood === 'typing' ? -5 : 0;
+  const rightArmY = mood === 'hiding' ? -30 : mood === 'happy' ? -15 : mood === 'typing' ? -5 : 0;
+  const leftArmRotate = (mood === 'hiding' || mood === 'peeking') ? -40 : mood === 'happy' ? -20 : mood === 'typing' ? -10 : 0;
+  const rightArmRotate = mood === 'hiding' ? 40 : mood === 'happy' ? 20 : mood === 'typing' ? 10 : 0;
 
   // Hand covering eyes (for password mode)
-  const handOverEyes = mood === 'hiding';
+  const handOverEyes = mood === 'hiding' || mood === 'peeking';
+  const peekingEye = mood === 'peeking';
 
   return (
     <motion.div
       style={{ width: size, height: size + 40, position: 'relative' }}
       animate={{
-        y: mood === 'happy' ? [0, -10, 0] : [0, -6, 0],
+        y: mood === 'happy' ? [0, -10, 0] : mood === 'typing' ? [0, -2, 0] : [0, -6, 0],
       }}
       transition={{
-        duration: mood === 'happy' ? 0.5 : 3,
+        duration: mood === 'happy' ? 0.5 : mood === 'typing' ? 0.2 : 3,
         repeat: Infinity,
         ease: mood === 'happy' ? 'easeInOut' : 'easeInOut',
       }}
@@ -133,7 +134,7 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
 
           {/* Eyes */}
           <AnimatePresence>
-            {!handOverEyes && (
+            {mood !== 'hiding' && (
               <>
                 <motion.ellipse
                   cx={78 + eyeX}
@@ -142,7 +143,7 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
                   fill="#60a5fa"
                   initial={{ ry: eyeHeight * 0.5 * eyeScale }}
                   animate={{
-                    ry: blink ? 1 : eyeHeight * 0.5 * eyeScale || 7,
+                    ry: blink ? 1 : mood === 'peeking' ? 1 : eyeHeight * 0.5 * eyeScale || 7,
                     fill: mood === 'happy' ? '#34d399' : '#60a5fa',
                   }}
                   transition={{ duration: blink ? 0.1 : 0.3 }}
@@ -167,7 +168,7 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
                   cy={83 + eyeY * 0.8}
                   r={3}
                   fill="#fff"
-                  animate={{ opacity: blink ? 0 : 0.8 }}
+                  animate={{ opacity: (blink || mood === 'peeking') ? 0 : 0.8 }}
                 />
                 <motion.circle
                   cx={122 + eyeX * 1.2}
@@ -176,6 +177,21 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
                   fill="#fff"
                   animate={{ opacity: blink ? 0 : 0.8 }}
                 />
+                {/* Loading indicator inside eyes */}
+                {mood === 'loading' && (
+                  <motion.circle
+                    cx={100}
+                    cy={83}
+                    r={8}
+                    fill="none"
+                    stroke="#60a5fa"
+                    strokeWidth="2"
+                    strokeDasharray="10 10"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    style={{ transformOrigin: '100px 83px' }}
+                  />
+                )}
               </>
             )}
           </AnimatePresence>
@@ -235,7 +251,7 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
           style={{ transformOrigin: '55px 145px' }}
         >
           <rect x="35" y="138" width="22" height="12" rx="6" fill="#bfdbfe" stroke="#93c5fd" strokeWidth="1.5" />
-          {handOverEyes && (
+          {(mood === 'hiding' || mood === 'peeking') && (
             <motion.rect
               x="20" y="128"
               width="28" height="20"
@@ -259,7 +275,7 @@ export default function RobotAssistant({ mood = 'idle', lookAt = { x: 0, y: 0 },
           style={{ transformOrigin: '145px 145px' }}
         >
           <rect x="143" y="138" width="22" height="12" rx="6" fill="#bfdbfe" stroke="#93c5fd" strokeWidth="1.5" />
-          {handOverEyes && (
+          {mood === 'hiding' && (
             <motion.rect
               x="152" y="128"
               width="28" height="20"

@@ -40,55 +40,25 @@ async function seed() {
   console.log('');
   console.log('Creating default users...');
 
+  // Demo accounts. Every password is DEMO_PASSWORD; change them after first login.
+  // department null = college-wide (super admin, watchman, accountant).
+  const DEMO_PASSWORD = 'demo1234';
   const defaultUsers = [
-    {
-      name:       'System Admin',
-      email:      'admin@college.edu',
-      password:   'admin123',
-      role:       'Admin',
-      department: 'Administration',
-      phone:      '9000000001',
-    },
-    {
-      name:       'IT Department',
-      email:      'itdept@college.edu',
-      password:   'dept123',
-      role:       'Department User',
-      department: 'Information Technology',
-      phone:      '9000000002',
-    },
-    {
-      name:       'HR Department',
-      email:      'hrdept@college.edu',
-      password:   'dept123',
-      role:       'Department User',
-      department: 'Human Resources',
-      phone:      '9000000003',
-    },
-    {
-      name:       'Gate Watchman',
-      email:      'watchman@college.edu',
-      password:   'watch123',
-      role:       'Watchman',
-      department: null,
-      phone:      '9000000004',
-    },
-    {
-      name:       'College Accountant',
-      email:      'accountant@college.edu',
-      password:   'acc123',
-      role:       'Accountant',
-      department: null,
-      phone:      '9000000005',
-    },
-  ];
+    { name: 'Super Admin',         email: 'admin@mlrit.ac.in',       role: 'Admin',           department: null,        phone: '9000000001' },
+    { name: 'HOD CSM(AIML)',       email: 'hod.csm@mlrit.ac.in',     role: 'Admin',           department: 'CSM(AIML)', phone: '9000000002' },
+    { name: 'Faculty CSM(AIML)',   email: 'faculty.csm@mlrit.ac.in', role: 'Department User', department: 'CSM(AIML)', phone: '9000000003' },
+    { name: 'HOD CSE',             email: 'hod.cse@mlrit.ac.in',     role: 'Admin',           department: 'CSE',       phone: '9000000004' },
+    { name: 'Faculty CSE',         email: 'faculty.cse@mlrit.ac.in', role: 'Department User', department: 'CSE',       phone: '9000000005' },
+    { name: 'Gate Watchman',       email: 'watchman@mlrit.ac.in',    role: 'Watchman',        department: null,        phone: '9000000006' },
+    { name: 'College Accountant',  email: 'accounts@mlrit.ac.in',    role: 'Accountant',      department: null,        phone: '9000000007' },
+  ].map((u) => ({ ...u, password: DEMO_PASSWORD }));
 
   const createdUsers = {};
   for (const u of defaultUsers) {
     const hashed = await bcrypt.hash(u.password, 10);
     const user = await prisma.user.upsert({
       where:  { email: u.email },
-      update: {},
+      update: { password: hashed, role_id: roles[u.role].role_id, department: u.department, is_active: true },
       create: {
         name:       u.name,
         email:      u.email,
@@ -138,12 +108,12 @@ async function seed() {
 
   const createdVendors = {};
   for (const v of vendorData) {
-    const hashed = await bcrypt.hash('vendor123', 10);
+    const hashed = await bcrypt.hash(DEMO_PASSWORD, 10);
 
     // Create user account for vendor
     const user = await prisma.user.upsert({
       where:  { email: v.email },
-      update: {},
+      update: { password: hashed },
       create: {
         name:      v.contact,
         email:     v.email,
@@ -171,7 +141,7 @@ async function seed() {
     });
 
     createdVendors[v.company] = vendor;
-    console.log(`  ✅ Vendor: ${v.company} | Login: ${v.email} / vendor123`);
+    console.log(`  ✅ Vendor: ${v.company} | Login: ${v.email} / ${DEMO_PASSWORD}`);
   }
 
   // ─────────────────────────────────────────────
@@ -543,37 +513,6 @@ async function seed() {
   }
 
   // ─────────────────────────────────────────────
-  // STEP 6: WAREHOUSES
-  // ─────────────────────────────────────────────
-  console.log('');
-  console.log('Creating warehouses...');
-
-  const warehouseData = [
-    {
-      name:         'Main Storeroom',
-      location:     'Administrative Block, Ground Floor, Room 001',
-      manager_name: 'Store Manager',
-    },
-    {
-      name:         'IT Equipment Store',
-      location:     'Computer Science Block, First Floor, Room 104',
-      manager_name: 'IT Admin',
-    },
-    {
-      name:         'Science Lab Store',
-      location:     'Science Block, Basement, Room B-02',
-      manager_name: 'Lab Technician',
-    },
-  ];
-
-  const createdWarehouses = {};
-  for (const w of warehouseData) {
-    const warehouse = await prisma.warehouse.create({ data: w });
-    createdWarehouses[w.name] = warehouse;
-    console.log(`  ✅ Warehouse: ${w.name}`);
-  }
-
-  // ─────────────────────────────────────────────
   // STEP 7: INVENTORY (stock levels for products)
   // ─────────────────────────────────────────────
   console.log('');
@@ -582,65 +521,65 @@ async function seed() {
   const inventoryData = [
 
     // Main Storeroom — general items
-    { sku: 'PAPER-A4-018',    warehouse: 'Main Storeroom',      qty: 45,  reorder: 20, min: 10, max: 100 },
-    { sku: 'PEN-BALL-023',    warehouse: 'Main Storeroom',      qty: 120, reorder: 30, min: 20, max: 200 },
-    { sku: 'NOTEBOOK-A4-024', warehouse: 'Main Storeroom',      qty: 60,  reorder: 20, min: 10, max: 150 },
-    { sku: 'FILE-ARCH-025',   warehouse: 'Main Storeroom',      qty: 35,  reorder: 15, min: 10, max: 100 },
-    { sku: 'MARKER-WHITE-026',warehouse: 'Main Storeroom',      qty: 8,   reorder: 10, min: 5,  max: 50  },
-    { sku: 'TONER-HP-017',    warehouse: 'Main Storeroom',      qty: 4,   reorder: 5,  min: 2,  max: 20  },
-    { sku: 'CLEAN-FLOOR-036', warehouse: 'Main Storeroom',      qty: 12,  reorder: 8,  min: 4,  max: 30  },
-    { sku: 'TISSUE-BOX-037',  warehouse: 'Main Storeroom',      qty: 25,  reorder: 10, min: 5,  max: 60  },
-    { sku: 'STRIP-POWER-028', warehouse: 'Main Storeroom',      qty: 6,   reorder: 4,  min: 2,  max: 20  },
-    { sku: 'CABLE-CAT6-022',  warehouse: 'Main Storeroom',      qty: 20,  reorder: 10, min: 5,  max: 50  },
+    { sku: 'PAPER-A4-018',    qty: 45,  reorder: 20, min: 10, max: 100 },
+    { sku: 'PEN-BALL-023',    qty: 120, reorder: 30, min: 20, max: 200 },
+    { sku: 'NOTEBOOK-A4-024', qty: 60,  reorder: 20, min: 10, max: 150 },
+    { sku: 'FILE-ARCH-025',   qty: 35,  reorder: 15, min: 10, max: 100 },
+    { sku: 'MARKER-WHITE-026',qty: 8,   reorder: 10, min: 5,  max: 50  },
+    { sku: 'TONER-HP-017',    qty: 4,   reorder: 5,  min: 2,  max: 20  },
+    { sku: 'CLEAN-FLOOR-036', qty: 12,  reorder: 8,  min: 4,  max: 30  },
+    { sku: 'TISSUE-BOX-037',  qty: 25,  reorder: 10, min: 5,  max: 60  },
+    { sku: 'STRIP-POWER-028', qty: 6,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'CABLE-CAT6-022',  qty: 20,  reorder: 10, min: 5,  max: 50  },
 
     // IT Equipment Store
-    { sku: 'LAPTOP-DELL-001', warehouse: 'IT Equipment Store',  qty: 12,  reorder: 5,  min: 3,  max: 30  },
-    { sku: 'LAPTOP-HP-002',   warehouse: 'IT Equipment Store',  qty: 8,   reorder: 4,  min: 2,  max: 20  },
-    { sku: 'DESKTOP-LENOVO-003',warehouse:'IT Equipment Store', qty: 5,   reorder: 3,  min: 1,  max: 15  },
-    { sku: 'MONITOR-LG-004',  warehouse: 'IT Equipment Store',  qty: 18,  reorder: 6,  min: 3,  max: 40  },
-    { sku: 'KEYBOARD-LOGIT-005',warehouse:'IT Equipment Store', qty: 22,  reorder: 8,  min: 4,  max: 50  },
-    { sku: 'MOUSE-LOGIT-006', warehouse: 'IT Equipment Store',  qty: 25,  reorder: 8,  min: 4,  max: 50  },
-    { sku: 'PENDRIVE-SAN-007',warehouse: 'IT Equipment Store',  qty: 40,  reorder: 15, min: 10, max: 80  },
-    { sku: 'HDD-SEAG-008',    warehouse: 'IT Equipment Store',  qty: 7,   reorder: 4,  min: 2,  max: 20  },
-    { sku: 'WEBCAM-LOGIT-009',warehouse: 'IT Equipment Store',  qty: 3,   reorder: 3,  min: 1,  max: 10  },
-    { sku: 'ROUTER-TPLINK-020',warehouse:'IT Equipment Store',  qty: 6,   reorder: 3,  min: 1,  max: 15  },
-    { sku: 'SWITCH-CISCO-021',warehouse: 'IT Equipment Store',  qty: 2,   reorder: 2,  min: 1,  max: 8   },
-    { sku: 'UPS-APC-027',     warehouse: 'IT Equipment Store',  qty: 9,   reorder: 4,  min: 2,  max: 20  },
-    { sku: 'PRINTER-HP-015',  warehouse: 'IT Equipment Store',  qty: 4,   reorder: 2,  min: 1,  max: 10  },
-    { sku: 'PRINTER-CANON-016',warehouse:'IT Equipment Store',  qty: 3,   reorder: 2,  min: 1,  max: 8   },
-    { sku: 'SCANNER-EPSON-019',warehouse:'IT Equipment Store',  qty: 2,   reorder: 2,  min: 1,  max: 6   },
-    { sku: 'MS-OFFICE-034',   warehouse: 'IT Equipment Store',  qty: 15,  reorder: 5,  min: 3,  max: 30  },
-    { sku: 'WIN-11-035',      warehouse: 'IT Equipment Store',  qty: 10,  reorder: 5,  min: 2,  max: 25  },
+    { sku: 'LAPTOP-DELL-001', qty: 12,  reorder: 5,  min: 3,  max: 30  },
+    { sku: 'LAPTOP-HP-002',   qty: 8,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'DESKTOP-LENOVO-003',qty: 5,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'MONITOR-LG-004',  qty: 18,  reorder: 6,  min: 3,  max: 40  },
+    { sku: 'KEYBOARD-LOGIT-005',qty: 22,  reorder: 8,  min: 4,  max: 50  },
+    { sku: 'MOUSE-LOGIT-006', qty: 25,  reorder: 8,  min: 4,  max: 50  },
+    { sku: 'PENDRIVE-SAN-007',qty: 40,  reorder: 15, min: 10, max: 80  },
+    { sku: 'HDD-SEAG-008',    qty: 7,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'WEBCAM-LOGIT-009',qty: 3,   reorder: 3,  min: 1,  max: 10  },
+    { sku: 'ROUTER-TPLINK-020',qty: 6,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'SWITCH-CISCO-021',qty: 2,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'UPS-APC-027',     qty: 9,   reorder: 4,  min: 2,  max: 20  },
+    { sku: 'PRINTER-HP-015',  qty: 4,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'PRINTER-CANON-016',qty: 3,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'SCANNER-EPSON-019',qty: 2,   reorder: 2,  min: 1,  max: 6   },
+    { sku: 'MS-OFFICE-034',   qty: 15,  reorder: 5,  min: 3,  max: 30  },
+    { sku: 'WIN-11-035',      qty: 10,  reorder: 5,  min: 2,  max: 25  },
 
     // Main Storeroom — furniture and AV
-    { sku: 'CHAIR-EXEC-010',  warehouse: 'Main Storeroom',      qty: 5,   reorder: 3,  min: 1,  max: 20  },
-    { sku: 'CHAIR-STUDY-011', warehouse: 'Main Storeroom',      qty: 30,  reorder: 10, min: 5,  max: 80  },
-    { sku: 'DESK-COMP-012',   warehouse: 'Main Storeroom',      qty: 4,   reorder: 2,  min: 1,  max: 15  },
-    { sku: 'CABINET-FILE-013',warehouse: 'Main Storeroom',      qty: 6,   reorder: 3,  min: 1,  max: 15  },
-    { sku: 'SHELF-BOOK-014',  warehouse: 'Main Storeroom',      qty: 8,   reorder: 3,  min: 1,  max: 20  },
-    { sku: 'PROJECTOR-EPSON-029',warehouse:'Main Storeroom',    qty: 3,   reorder: 2,  min: 1,  max: 8   },
-    { sku: 'SCREEN-PROJ-030', warehouse: 'Main Storeroom',      qty: 4,   reorder: 2,  min: 1,  max: 10  },
-    { sku: 'MIC-WIRELESS-031',warehouse: 'Main Storeroom',      qty: 2,   reorder: 2,  min: 1,  max: 6   },
+    { sku: 'CHAIR-EXEC-010',  qty: 5,   reorder: 3,  min: 1,  max: 20  },
+    { sku: 'CHAIR-STUDY-011', qty: 30,  reorder: 10, min: 5,  max: 80  },
+    { sku: 'DESK-COMP-012',   qty: 4,   reorder: 2,  min: 1,  max: 15  },
+    { sku: 'CABINET-FILE-013',qty: 6,   reorder: 3,  min: 1,  max: 15  },
+    { sku: 'SHELF-BOOK-014',  qty: 8,   reorder: 3,  min: 1,  max: 20  },
+    { sku: 'PROJECTOR-EPSON-029',qty: 3,   reorder: 2,  min: 1,  max: 8   },
+    { sku: 'SCREEN-PROJ-030', qty: 4,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'MIC-WIRELESS-031',qty: 2,   reorder: 2,  min: 1,  max: 6   },
 
     // Science Lab Store
-    { sku: 'SCOPE-MICRO-032', warehouse: 'Science Lab Store',   qty: 5,   reorder: 2,  min: 1,  max: 10  },
-    { sku: 'GLOVES-LAB-033',  warehouse: 'Science Lab Store',   qty: 15,  reorder: 8,  min: 4,  max: 40  },
+    { sku: 'SCOPE-MICRO-032', qty: 5,   reorder: 2,  min: 1,  max: 10  },
+    { sku: 'GLOVES-LAB-033',  qty: 15,  reorder: 8,  min: 4,  max: 40  },
   ];
 
   let inventoryCount = 0;
   for (const item of inventoryData) {
     const product  = createdProducts[item.sku];
-    const warehouse = createdWarehouses[item.warehouse];
 
-    if (!product || !warehouse) {
-      console.log(`  ⚠️  Skipping inventory for ${item.sku} — product or warehouse not found`);
+    if (!product) {
+      console.log(`  ⚠️  Skipping inventory for ${item.sku} — product not found`);
       continue;
     }
 
+    // All demo stock belongs to CSM(AIML); CSE starts empty to show the separation.
     await prisma.inventory.create({
       data: {
         product_id:         product.product_id,
-        warehouse_id:       warehouse.warehouse_id,
+        department:         'CSM(AIML)',
         quantity_available: item.qty,
         reorder_point:      item.reorder,
         min_stock:          item.min,
@@ -707,7 +646,7 @@ async function seed() {
         serial_number: w.serial,
         start_date:    w.start,
         end_date:      w.end,
-        notified:      false,
+        department:    'CSM(AIML)',
       },
     });
 
@@ -728,44 +667,32 @@ async function seed() {
   console.log('');
   console.log('Creating subscriptions...');
 
+  // Standalone licences and services (no inventory product).
   const subscriptionData = [
-    {
-      sku:          'MS-OFFICE-034',
-      service:      'Microsoft 365 Business',
-      expiry:       new Date(today.getFullYear(), today.getMonth(), today.getDate() + 20),
-      auto_renew:   false,
-    },
-    {
-      sku:          'WIN-11-035',
-      service:      'Windows Defender Antivirus',
-      expiry:       new Date(today.getFullYear(), today.getMonth() + 3, today.getDate()),
-      auto_renew:   true,
-    },
-    {
-      sku:          'LAPTOP-DELL-001',
-      service:      'Dell SupportAssist Pro',
-      expiry:       new Date(today.getFullYear(), today.getMonth(), today.getDate() + 45),
-      auto_renew:   false,
-    },
+    { service: 'Microsoft 365', provider: 'Microsoft', plan: 'A3 for faculty', department: 'CSM(AIML)', seats: 60, cost: 145000, cycle: 'yearly', days: 20, auto_renew: false },
+    { service: 'Adobe Photoshop', provider: 'Adobe', plan: 'Creative Cloud for education', department: 'CSM(AIML)', seats: 10, cost: 2400, cycle: 'monthly', days: 6, auto_renew: true },
+    { service: 'Claude Team', provider: 'Anthropic', plan: 'Team', department: 'CSM(AIML)', seats: 5, cost: 9000, cycle: 'monthly', days: 45, auto_renew: true },
+    { service: 'MATLAB Campus licence', provider: 'MathWorks', plan: 'Total Academic Headcount', department: 'CSE', seats: 200, cost: 350000, cycle: 'yearly', days: 120, auto_renew: false },
   ];
 
   for (const s of subscriptionData) {
-    const product = createdProducts[s.sku];
-    if (!product) continue;
-
+    const expiry = new Date(today.getFullYear(), today.getMonth(), today.getDate() + s.days);
     await prisma.subscription.create({
       data: {
-        product_id:   product.product_id,
-        service_name: s.service,
-        expiry_date:  s.expiry,
-        auto_renew:   s.auto_renew,
-        notified:     false,
+        service_name:  s.service,
+        provider:      s.provider,
+        plan:          s.plan,
+        department:    s.department,
+        seats:         s.seats,
+        cost:          s.cost,
+        billing_cycle: s.cycle,
+        expiry_date:   expiry,
+        auto_renew:    s.auto_renew,
       },
     });
 
-    const daysLeft = Math.ceil((s.expiry - today) / (1000 * 60 * 60 * 24));
-    const status = daysLeft <= 30 ? '⚠️  EXPIRING SOON' : '✅ Active';
-    console.log(`  ${status} Subscription: ${s.service} | Days: ${daysLeft}`);
+    const status = s.days <= 30 ? '⚠️  EXPIRING SOON' : '✅ Active';
+    console.log(`  ${status} Subscription: ${s.service} | Days: ${s.days}`);
   }
 
   // ─────────────────────────────────────────────
@@ -781,22 +708,20 @@ async function seed() {
   console.log(`║  • ${Object.keys(createdVendors).length} Vendor accounts                                     ║`);
   console.log(`║  • ${Object.keys(createdCategories).length} Product categories                                   ║`);
   console.log(`║  • ${Object.keys(createdProducts).length} Products across all categories                    ║`);
-  console.log(`║  • ${Object.keys(createdWarehouses).length} Warehouses                                          ║`);
   console.log(`║  • ${inventoryCount} Inventory entries                                ║`);
   console.log('║  • 5 Warranties (1 expired, 1 critical, 1 expiring soon) ║');
-  console.log('║  • 3 Subscriptions (1 expiring soon)                     ║');
+  console.log('║  • 4 Subscriptions (2 renewing within 30 days)           ║');
   console.log('╠══════════════════════════════════════════════════════════╣');
   console.log('║  LOGIN CREDENTIALS:                                      ║');
   console.log('║                                                          ║');
-  console.log('║  Admin:      admin@college.edu       / admin123          ║');
-  console.log('║  IT Dept:    itdept@college.edu      / dept123           ║');
-  console.log('║  HR Dept:    hrdept@college.edu      / dept123           ║');
-  console.log('║  Watchman:   watchman@college.edu    / watch123          ║');
-  console.log('║  Accountant: accountant@college.edu  / acc123            ║');
+  console.log(`║  Every demo account uses the password: ${DEMO_PASSWORD}          ║`);
   console.log('║                                                          ║');
-  console.log('║  Vendor 1:   vendor1@techsupply.com  / vendor123         ║');
-  console.log('║  Vendor 2:   vendor2@officeworld.com / vendor123         ║');
-  console.log('║  Vendor 3:   vendor3@printmaster.com / vendor123         ║');
+  for (const u of defaultUsers) {
+    const label = u.role === 'Admin' ? (u.department ? `HOD · ${u.department}` : 'Super admin')
+      : u.role === 'Department User' ? `Faculty · ${u.department}` : u.role;
+    console.log(`║  ${label.padEnd(26)} ${u.email.padEnd(28)}║`);
+  }
+  for (const v of vendorData) console.log(`║  ${'Vendor'.padEnd(26)} ${v.email.padEnd(28)}║`);
   console.log('╠══════════════════════════════════════════════════════════╣');
   console.log('║  ALERTS SEEDED FOR TESTING:                              ║');
   console.log('║  • Projector warranty expires in 25 days                 ║');

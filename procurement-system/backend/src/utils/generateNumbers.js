@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { normalizeDepartment, departmentCode } = require('./departments');
 
 const DEPT_MAP = {
   'information technology':'IT','it':'IT',
@@ -9,6 +10,7 @@ const DEPT_MAP = {
 };
 
 const getDept = (dept) => {
+  if (normalizeDepartment(dept)) return departmentCode(dept); // e.g. CSM(AIML) → CSM
   const raw = (dept || 'GEN').toLowerCase().trim();
   return DEPT_MAP[raw] || (dept || 'GEN').replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'GEN';
 };
@@ -38,22 +40,6 @@ const generatePRNumber = async (department) => {
     const ts = Date.now().toString().slice(-4);
     console.error('[generatePRNumber] Error, using fallback:', err.message);
     return `PR-${y}-GEN-${ts}`;
-  }
-};
-
-const generatePONumber = async (vendorName) => {
-  try {
-    const y = new Date().getFullYear();
-    const v = (vendorName || 'VND').replace(/[^a-zA-Z]/g,'').substring(0,3).toUpperCase();
-    const n = await prisma.purchaseOrder.count({
-      where: { po_number: { startsWith: `PO-${y}-${v}` } }
-    });
-    return `PO-${y}-${v}-${pad(n)}`;
-  } catch (err) {
-    const y = new Date().getFullYear();
-    const ts = Date.now().toString().slice(-4);
-    console.error('[generatePONumber] Error, using fallback:', err.message);
-    return `PO-${y}-VND-${ts}`;
   }
 };
 
@@ -88,19 +74,12 @@ const generateWONumber = async (department) => {
   }
 };
 
-const generateGENumber = async () => {
-  try {
-    const y = new Date().getFullYear();
-    const n = await prisma.gateEntry.count({
-      where: { entry_number: { startsWith: `GE-${y}` } }
-    });
-    return `GE-${y}-${pad(n)}`;
-  } catch (err) {
-    const y = new Date().getFullYear();
-    const ts = Date.now().toString().slice(-4);
-    console.error('[generateGENumber] Error, using fallback:', err.message);
-    return `GE-${y}-${ts}`;
-  }
+// Shipment number = work order number + delivery sequence, e.g. WO-2026-IT-0001/S2
+// Uses the highest existing sequence (not a count) so a withdrawn invoice never causes a clash.
+const generateShipmentNumber = async (tx, wo) => {
+  const rows = await tx.shipment.findMany({ where: { wo_id: wo.wo_id }, select: { shipment_number: true } });
+  const max = rows.reduce((m, r) => Math.max(m, parseInt((r.shipment_number.match(/(\d+)$/) || [])[1], 10) || 0), 0);
+  return `${wo.wo_number}/S${max + 1}`;
 };
 
-module.exports = { generatePRNumber, generatePONumber, generateWONumber, generateGENumber };
+module.exports = { generatePRNumber, generateWONumber, generateShipmentNumber };

@@ -10,21 +10,16 @@ async function cleanSlate() {
   console.log('');
 
   const steps = [
-    { name: 'Billing Documents',       fn: () => prisma.billingDocument.deleteMany() },
-    { name: 'Gate Entries',            fn: () => prisma.gateEntry.deleteMany() },
-    { name: 'Payments',                fn: () => prisma.payment.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Invoices',                fn: () => prisma.invoice.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Receipt Items',           fn: () => prisma.receiptItem.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Goods Receipts',          fn: () => prisma.goodsReceipt.deleteMany().catch(() => ({ count: 0 })) },
+    // Order cycle (v3), children before parents
+    { name: 'Gate Checks',             fn: () => prisma.gateCheck.deleteMany() },
+    { name: 'Shipment Items',          fn: () => prisma.shipmentItem.deleteMany() },
+    { name: 'Shipments',               fn: () => prisma.shipment.deleteMany() },
     { name: 'Work Orders',             fn: () => prisma.workOrder.deleteMany() },
+    { name: 'Quotation Items',         fn: () => prisma.quotationItem.deleteMany() },
     { name: 'Vendor Quote Submissions',fn: () => prisma.vendorQuoteSubmission.deleteMany() },
-    { name: 'Vendor Quotes',           fn: () => prisma.vendorQuote.deleteMany().catch(() => ({ count: 0 })) },
     { name: 'Vendor RFQs',             fn: () => prisma.vendorRFQ.deleteMany() },
-    { name: 'Order Items',             fn: () => prisma.orderItem.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Vendor Portal Actions',   fn: () => prisma.vendorPortalAction.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Return Orders',           fn: () => prisma.returnOrder.deleteMany().catch(() => ({ count: 0 })) },
-    { name: 'Purchase Orders',         fn: () => prisma.purchaseOrder.deleteMany().catch(() => ({ count: 0 })) },
     { name: 'Approval Logs',           fn: () => prisma.approvalLog.deleteMany() },
+    { name: 'Purchase Request Items',  fn: () => prisma.purchaseRequestItem.deleteMany() },
     { name: 'Purchase Requests',       fn: () => prisma.purchaseRequest.deleteMany() },
     { name: 'Notifications',           fn: () => prisma.notification.deleteMany() },
     { name: 'Audit Logs',              fn: () => prisma.auditLog.deleteMany().catch(() => ({ count: 0 })) },
@@ -54,7 +49,7 @@ async function cleanSlate() {
   console.log(`Procurement data cleared. Total records deleted: ${totalDeleted}`);
   console.log('');
 
-  console.log('Clearing products, categories and warehouses...');
+  console.log('Clearing products and categories...');
 
   try {
     const products = await prisma.product.deleteMany();
@@ -68,13 +63,6 @@ async function cleanSlate() {
     console.log(`  Deleted ${cats.count} Categories`);
   } catch (e) {
     console.log('  Categories: could not delete -', e.message.split('\n')[0]);
-  }
-
-  try {
-    const wh = await prisma.warehouse.deleteMany();
-    console.log(`  Deleted ${wh.count} Warehouses`);
-  } catch (e) {
-    console.log('  Warehouses: could not delete -', e.message.split('\n')[0]);
   }
 
   console.log('');

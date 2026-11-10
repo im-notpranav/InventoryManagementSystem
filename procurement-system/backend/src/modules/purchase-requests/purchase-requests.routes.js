@@ -1,439 +1,304 @@
+// Purchase requests (v3)
+//   faculty: create with principal letter → HOD (same department): approve / reject
+//   HOD: send RFQ to registered vendors and/or any email (invite) with a closing date
 const express = require('express');
 const prisma = require('../../config/db');
 const { requireAuth, requireRole } = require('../../middleware/auth.middleware');
+const upload = require('../../utils/fileUpload');
 const { ok, fail } = require('../../utils/response');
 const { generatePRNumber } = require('../../utils/generateNumbers');
-const { sendPRApprovedEmail, sendRFQEmail } = require('../../utils/mailer');
+const {
+  FRONTEND_URL, requestScope, canManageRequest, canViewRequest,
+  hodsFor, notify, newInviteToken,
+} = require('../../utils/orderCycle');
 
 const router = express.Router();
 
-// GET all purchase requests
-router.get('/', requireAuth, async (req, res) => {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INVITE_DAYS = 30;
+
+const LIST_INCLUDE = {
+  user: { select: { user_id: true, name: true, email: true, department: true } },
+  items: { include: { product: { select: { product_id: true, name: true, sku: true, unit: true } } } },
+  approval_logs: { include: { approver: { select: { name: true } } }, orderBy: { acted_at: 'asc' } },
+  _count: { select: { vendor_rfqs: true, quote_submissions: true } },
+};
+
+const DETAIL_INCLUDE = {
+  ...LIST_INCLUDE,
+  vendor_rfqs: {
+    include: { vendor: { select: { vendor_id: true, vendor_name: true, email: true, status: true } } },
+    orderBy: { sent_at: 'asc' },
+  },
+  quote_submissions: {
+    include: {
+      vendor: { select: { vendor_id: true, vendor_name: true, email: true } },
+      items: true,
+    },
+    orderBy: { total_price: 'asc' },
+  },
+  work_orders: {
+    include: {
+      vendor: { select: { vendor_id: true, vendor_name: true, email: true } },
+      shipments: { include: { items: true, gate_checks: { orderBy: { checked_at: 'desc' } } }, orderBy: { created_at: 'asc' } },
+    },
+  },
+};
+
+const parseId = (v) => {
+  const n = parseInt(v, 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+const parseJson = (raw, fallback) => {
+  if (Array.isArray(raw)) return raw;
+  try { return JSON.parse(raw); } catch { return fallback; }
+};
+
+async function loadForManage(req, res) {
+  const id = parseId(req.params.id);
+  if (!id) { fail(res, 'Invalid request ID', 400); return null; }
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { request_id: id },
+    include: { user: true, items: { include: { product: true } } },
+  });
+  if (!pr) { fail(res, 'Purchase request not found', 404); return null; }
+  if (!canManageRequest(req.user, pr)) { fail(res, 'This request belongs to another department', 403); return null; }
+  return pr;
+}
+
+// ── GET / — list (faculty: own, HOD: own department) ─────────
+router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const { status, department } = req.query;
-    const where = {};
-
-    // Dept users see only their own
-    if (req.user.role === 'Department User') {
-      where.requested_by = req.user.user_id;
-    }
-
-    if (status) where.status = status;
-    if (department) where.user = { department: String(department) };
-
+    const where = { ...requestScope(req.user) };
+    if (req.query.status) where.status = { in: String(req.query.status).split(',') };
     const data = await prisma.purchaseRequest.findMany({
-      where,
-      include: {
-        user: { select: { user_id: true, name: true, email: true, department: true } },
-        product: true,
-        warehouse: true,
-        approval_logs: { include: { approver: { select: { name: true } } } },
-        items: { include: { product: true } },
-      },
-      orderBy: { requested_at: 'desc' }
+      where, include: LIST_INCLUDE, orderBy: { requested_at: 'desc' },
     });
     return ok(res, data);
-  } catch (err) {
-    console.error('[PR GET ALL ERROR]', err.message);
-    console.error('[PR GET ALL STACK]', err.stack);
-    return res.status(500).json({ success: false, message: 'Failed to load purchase requests' });
-  }
+  } catch (err) { next(err); }
 });
 
-// GET single
-router.get('/:id', requireAuth, async (req, res) => {
+// ── GET /:id — full order trail ──────────────────────────────
+router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const pr = await prisma.purchaseRequest.findUnique({
-      where: { request_id: parseInt(req.params.id) },
-      include: {
-        user: { select: { user_id: true, name: true, email: true, department: true } },
-        product: true,
-        warehouse: true,
-        approval_logs: { include: { approver: { select: { name: true } } } },
-        vendor_rfqs: { include: { vendor: true } },
-        quote_submissions: { include: { vendor: true } },
-        work_orders: true,
-        items: { include: { product: true } },
-      }
-    });
+    const id = parseId(req.params.id);
+    if (!id) return fail(res, 'Invalid request ID', 400);
+    const pr = await prisma.purchaseRequest.findUnique({ where: { request_id: id }, include: DETAIL_INCLUDE });
     if (!pr) return fail(res, 'Purchase request not found', 404);
+    if (!canViewRequest(req.user, pr)) return fail(res, 'Access denied', 403);
     return ok(res, pr);
-  } catch (err) {
-    console.error('[PR GET ONE ERROR]', err.message);
-    console.error('[PR GET ONE STACK]', err.stack);
-    return res.status(500).json({ success: false, message: 'Failed to load purchase request' });
-  }
+  } catch (err) { next(err); }
 });
 
-// POST — create new PR (supports single product OR items array)
-router.post('/', requireAuth, async (req, res) => {
+// ── POST / — faculty creates request (letter mandatory) ──────
+// multipart: letter (file), items (JSON: [{ product_id | new_product:{name,unit}, quantity, notes }]), required_date
+router.post('/', requireAuth, requireRole('Department User', 'Admin'), upload.single('letter'), async (req, res, next) => {
   try {
-    const {
-      product_id,
-      new_product,
-      warehouse_id,
-      quantity,
-      justification,
-      priority,
-      required_date,
-      estimated_cost,
-      budget_code,
-      items, // NEW: array of { product_id, quantity, estimated_cost?, notes? }
-    } = req.body;
+    if (!req.file) return fail(res, "Upload the principal's letter (PDF or image)", 400);
 
-    // VALIDATE: warehouse (optional — auto-assign if not provided)
-    let resolvedWarehouseId = warehouse_id ? parseInt(warehouse_id) : null;
-    if (resolvedWarehouseId) {
-      const warehouseExists = await prisma.warehouse.findUnique({
-        where: { warehouse_id: resolvedWarehouseId }
-      });
-      if (!warehouseExists) resolvedWarehouseId = null;
-    }
-    if (!resolvedWarehouseId) {
-      const firstWarehouse = await prisma.warehouse.findFirst();
-      if (firstWarehouse) resolvedWarehouseId = firstWarehouse.warehouse_id;
-      // warehouse is now optional — don't error if none found
-    }
+    const items = parseJson(req.body.items, null);
+    if (!Array.isArray(items) || items.length === 0) return fail(res, 'Add at least one item', 400);
 
-    if (estimated_cost != null && estimated_cost !== '' && parseFloat(estimated_cost) < 0) {
-      return fail(res, 'Estimated cost cannot be negative', 400);
-    }
+    const requiredDate = req.body.required_date ? new Date(req.body.required_date) : null;
+    if (!requiredDate || Number.isNaN(requiredDate.getTime())) return fail(res, 'Required-by date is required', 400);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (requiredDate < today) return fail(res, 'Required-by date cannot be in the past', 400);
 
-    // ── MULTI-PRODUCT (items array) ──
-    if (Array.isArray(items) && items.length > 0) {
-      // Validate each item
-      for (const item of items) {
-        if (!item.product_id) return fail(res, 'Each item must have a product_id', 400);
-        if (!item.quantity || parseInt(item.quantity) < 1) {
-          return fail(res, 'Each item must have quantity >= 1', 400);
-        }
+    for (const [i, item] of items.entries()) {
+      const qty = parseInt(item.quantity, 10);
+      if (!Number.isInteger(qty) || qty < 1) return fail(res, `Item ${i + 1}: quantity must be at least 1`, 400);
+      if (!parseId(item.product_id) && !item.new_product?.name?.trim()) {
+        return fail(res, `Item ${i + 1}: pick a product or enter a new product name`, 400);
       }
+    }
 
-      const pr_number = await generatePRNumber(req.user.department);
-
-      const pr = await prisma.$transaction(async (tx) => {
-        const created = await tx.purchaseRequest.create({
-          data: {
-            pr_number,
-            requested_by: req.user.user_id,
-            product_id: parseInt(items[0].product_id), // primary product
-            warehouse_id: resolvedWarehouseId,
-            quantity: items.reduce((sum, i) => sum + parseInt(i.quantity), 0),
-            priority: ['low', 'medium', 'high', 'urgent'].includes(priority) ? priority : 'medium',
-            justification: justification?.trim() || null,
-            required_date: required_date ? new Date(required_date) : null,
-            estimated_cost: estimated_cost != null && estimated_cost !== '' ? parseFloat(estimated_cost) : null,
-            budget_code: budget_code != null ? String(budget_code) : null,
-            status: 'pending',
-          },
-        });
-
-        // Create item rows
-        for (const item of items) {
-          await tx.purchaseRequestItem.create({
+    const pr = await prisma.$transaction(async (tx) => {
+      let general = null;
+      const rows = [];
+      for (const item of items) {
+        let productId = parseId(item.product_id);
+        if (productId) {
+          const exists = await tx.product.findUnique({ where: { product_id: productId }, select: { product_id: true } });
+          if (!exists) throw Object.assign(new Error('Selected product not found'), { status: 400 });
+        } else {
+          if (!general) {
+            general = await tx.category.findFirst({ where: { name: 'General' } })
+              || await tx.category.create({ data: { name: 'General', description: 'Items added from requests' } });
+          }
+          const created = await tx.product.create({
             data: {
-              request_id: created.request_id,
-              product_id: parseInt(item.product_id),
-              quantity: parseInt(item.quantity),
-              estimated_cost: item.estimated_cost ? parseFloat(item.estimated_cost) : null,
-              notes: item.notes || null,
+              category_id: general.category_id,
+              sku: `PROD-${Date.now().toString(36).toUpperCase()}-${rows.length}`,
+              name: item.new_product.name.trim(),
+              unit: item.new_product.unit?.trim() || 'piece',
+              unit_price: 0,
             },
           });
+          productId = created.product_id;
         }
-
-        return created;
-      });
-
-      const full = await prisma.purchaseRequest.findUnique({
-        where: { request_id: pr.request_id },
-        include: {
-          product: { include: { category: true } },
-          warehouse: true,
-          items: { include: { product: true } },
-          user: { select: { user_id: true, name: true, email: true } },
-        },
-      });
-
-      console.log(`[PR] Created multi-item ${full.pr_number} (${items.length} items) by ${req.user.name}`);
-
-      return res.status(201).json({
-        success: true,
-        message: `Purchase Request ${full.pr_number} created with ${items.length} item(s)`,
-        data: full,
-      });
-    }
-
-    // ── SINGLE PRODUCT (backward compatible) ──
-    if (!quantity || parseInt(quantity) < 1) {
-      return res.status(400).json({ success: false, message: 'Quantity must be at least 1' });
-    }
-
-    let finalProductId = product_id ? parseInt(product_id) : null;
-
-    if (!finalProductId && new_product) {
-      const { name, sku, unit, unit_price, description } = new_product;
-      if (!name || !name.trim()) {
-        return res.status(400).json({ success: false, message: 'Product name is required when creating a new product' });
+        rows.push({ product_id: productId, quantity: parseInt(item.quantity, 10), notes: item.notes?.trim() || null });
       }
 
-      let category = await prisma.category.findFirst({ where: { name: 'General' } });
-      if (!category) {
-        category = await prisma.category.create({ data: { name: 'General', description: 'Auto-created for on-the-fly products' } });
-      }
-
-      const productSku = sku?.trim() || `PROD-${Date.now().toString().slice(-6)}`;
-      const skuExists = await prisma.product.findUnique({ where: { sku: productSku } }).catch(() => null);
-      const finalSku = skuExists ? `PROD-${Date.now().toString().slice(-6)}` : productSku;
-
-      const createdProduct = await prisma.product.create({
+      return tx.purchaseRequest.create({
         data: {
-          category_id: category.category_id,
-          sku: finalSku,
-          name: name.trim(),
-          description: description?.trim() || null,
-          unit: unit?.trim() || 'piece',
-          unit_price: parseFloat(unit_price) || 0,
-          is_active: true,
+          pr_number: await generatePRNumber(req.user.department),
+          requested_by: req.user.user_id,
+          letter_url: `/uploads/${req.file.filename}`,
+          required_date: requiredDate,
+          status: 'pending',
+          items: { create: rows },
         },
+        include: LIST_INCLUDE,
       });
-      finalProductId = createdProduct.product_id;
-    }
+    });
 
-    if (!finalProductId) {
-      return res.status(400).json({ success: false, message: 'Please select an existing product or provide new product details' });
-    }
-
-    const productExists = await prisma.product.findUnique({ where: { product_id: finalProductId } });
-    if (!productExists) {
-      return res.status(400).json({ success: false, message: 'Selected product not found' });
-    }
-
-    const pr_number = await generatePRNumber(req.user.department);
-
-    const pr = await prisma.purchaseRequest.create({
-      data: {
-        pr_number,
-        requested_by: req.user.user_id,
-        product_id: finalProductId,
-        warehouse_id: resolvedWarehouseId,
-        quantity: parseInt(quantity),
-        priority: ['low', 'medium', 'high', 'urgent'].includes(priority) ? priority : 'medium',
-        justification: justification?.trim() || null,
-        required_date: required_date ? new Date(required_date) : null,
-        estimated_cost: estimated_cost != null && estimated_cost !== '' ? parseFloat(estimated_cost) : null,
-        budget_code: budget_code != null ? String(budget_code) : null,
-        status: 'pending',
-      },
-      include: {
-        product: { include: { category: true } },
-        warehouse: true,
-        user: { select: { user_id: true, name: true, email: true } },
+    const hods = await hodsFor(req.user.department);
+    notify(hods, {
+      type: 'pr_submitted',
+      message: `${pr.pr_number} from ${req.user.name} is waiting for approval`,
+      email: {
+        subject: `Approval needed: ${pr.pr_number}`,
+        heading: 'New purchase request',
+        rows: [
+          ['Request', pr.pr_number],
+          ['Requested by', `${req.user.name}${req.user.department ? ` (${req.user.department})` : ''}`],
+          ['Items', pr.items.map((i) => `${i.product.name} × ${i.quantity}`).join(', ')],
+          ['Required by', requiredDate.toDateString()],
+        ],
+        cta: { label: 'Review request', url: `${FRONTEND_URL()}/purchase-requests?id=${pr.request_id}` },
       },
     });
 
-    try {
-      console.log(`[PR] Created ${pr.pr_number} by ${req.user.name}`);
-    } catch (notifyErr) {
-      console.warn('[PR] Notification failed (non-fatal):', notifyErr.message);
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: `Purchase Request ${pr.pr_number} created successfully`,
-      data: pr,
-    });
+    return ok(res, pr, `Request ${pr.pr_number} submitted`, 201);
   } catch (err) {
-    console.error('[PR CREATE ERROR]', err.message);
-    console.error('[PR CREATE STACK]', err.stack);
-
-    if (err.code === 'P2002') {
-      return res.status(400).json({ success: false, message: 'A purchase request with this reference already exists. Please try again.' });
-    }
-    if (err.code === 'P2003') {
-      return res.status(400).json({ success: false, message: 'Invalid product or warehouse selected. Please check your selections.' });
-    }
-    if (err.code === 'P2025') {
-      return res.status(404).json({ success: false, message: 'Related record not found. Please refresh and try again.' });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to create purchase request. Please try again.',
-      detail: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    });
+    if (err.status) return fail(res, err.message, err.status);
+    next(err);
   }
 });
 
-// PUT — approve
-router.put('/:id/approve', requireAuth, requireRole('Admin'), async (req, res) => {
+// ── PUT /:id/approve | /:id/reject — HOD of the department ──
+async function decide(req, res, next, action) {
   try {
-    const requestId = parseInt(req.params.id, 10);
-    if (isNaN(requestId) || requestId <= 0) {
-      return fail(res, 'Invalid request ID format', 400);
-    }
-    
-    const pr = await prisma.purchaseRequest.findUnique({
-      where: { request_id: requestId },
-      include: { user: true, product: true }
-    });
-    if (!pr) return fail(res, 'Purchase request not found', 404);
-    if (pr.status !== 'pending') return fail(res, `Cannot approve a request with status: ${pr.status}`);
+    const pr = await loadForManage(req, res);
+    if (!pr) return;
+    if (pr.status !== 'pending') return fail(res, `Request is already ${pr.status}`, 400);
+
+    const comments = String(req.body.comments || req.body.reason || '').trim() || null;
+    if (action === 'rejected' && !comments) return fail(res, 'Give a reason for rejection', 400);
 
     await prisma.$transaction([
       prisma.purchaseRequest.update({
-        where: { request_id: requestId },
-        data: { status: 'approved' }
+        where: { request_id: pr.request_id },
+        data: { status: action, admin_remarks: comments },
       }),
       prisma.approvalLog.create({
-        data: {
-          request_id: requestId,
-          approver_id: req.user.user_id,
-          action: 'approved',
-          comments: req.body.comments || null,
-        }
-      })
+        data: { request_id: pr.request_id, approver_id: req.user.user_id, action, comments },
+      }),
     ]);
 
-    // Send email notification to the requester (fire-and-forget)
-    try {
-      if (pr.user?.email) {
-        await sendPRApprovedEmail({
-          to: pr.user.email,
-          userName: pr.user.name,
-          prNumber: pr.pr_number,
-          productName: pr.product?.name || 'Unknown Product',
-          quantity: pr.quantity,
+    notify([pr.user], {
+      type: `pr_${action}`,
+      message: `${pr.pr_number} was ${action}${comments ? `: ${comments}` : ''}`,
+      email: {
+        subject: `${pr.pr_number} ${action}`,
+        heading: `Your request was ${action}`,
+        rows: [['Request', pr.pr_number], ['By', req.user.name], ['Remarks', comments]],
+        cta: { label: 'Open request', url: `${FRONTEND_URL()}/purchase-requests?id=${pr.request_id}` },
+      },
+    });
+
+    return ok(res, null, `Request ${action}`);
+  } catch (err) { next(err); }
+}
+
+router.put('/:id/approve', requireAuth, requireRole('Admin'), (req, res, next) => decide(req, res, next, 'approved'));
+router.put('/:id/reject', requireAuth, requireRole('Admin'), (req, res, next) => decide(req, res, next, 'rejected'));
+
+// ── POST /:id/rfq — send product details to vendors ─────────
+// body: { vendor_ids: [int], emails: [string], closes_at: ISO date }
+// Unknown emails get a vendor record + invite link (instant access).
+// Can be called again while the RFQ is open to add more vendors / extend the date.
+router.post('/:id/rfq', requireAuth, requireRole('Admin'), async (req, res, next) => {
+  try {
+    const pr = await loadForManage(req, res);
+    if (!pr) return;
+    if (!['approved', 'rfq_sent'].includes(pr.status)) return fail(res, 'Only approved requests can be sent to vendors', 400);
+
+    const closesAt = new Date(req.body.closes_at);
+    if (Number.isNaN(closesAt.getTime())) return fail(res, 'Set a closing date for quotations', 400);
+    if (closesAt <= new Date()) return fail(res, 'Closing date must be in the future', 400);
+
+    const vendorIds = [...new Set((req.body.vendor_ids || []).map(parseId).filter(Boolean))];
+    const emails = [...new Set((req.body.emails || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+    const badEmail = emails.find((e) => !EMAIL_RE.test(e));
+    if (badEmail) return fail(res, `Invalid email: ${badEmail}`, 400);
+    if (!vendorIds.length && !emails.length) return fail(res, 'Pick at least one vendor or enter an email', 400);
+
+    const vendors = [];
+    for (const id of vendorIds) {
+      const v = await prisma.vendor.findUnique({ where: { vendor_id: id } });
+      if (!v) return fail(res, `Vendor ${id} not found`, 404);
+      if (v.is_blacklisted) return fail(res, `${v.vendor_name} is blacklisted`, 400);
+      vendors.push(v);
+    }
+    for (const email of emails) {
+      let v = await prisma.vendor.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+      if (v?.is_blacklisted) return fail(res, `${email} is blacklisted`, 400);
+      if (!v) {
+        v = await prisma.vendor.create({
+          data: { vendor_name: email.split('@')[0], email, status: 'invited' },
         });
       }
-    } catch (mailErr) {
-      console.error('[PR] Approval email failed:', mailErr.message);
+      if (!vendors.some((x) => x.vendor_id === v.vendor_id)) vendors.push(v);
     }
 
-    return ok(res, null, 'Purchase request approved');
-  } catch (err) {
-    console.error('[PR APPROVE ERROR]', err.message);
-    console.error('[PR APPROVE STACK]', err.stack);
-    return res.status(500).json({ success: false, message: 'Failed to approve purchase request' });
-  }
-});
-
-// POST — send RFQ (alias for POST /rfq/send — same contract as body: { vendor_ids })
-router.post('/:id/send-rfq', requireAuth, requireRole('Admin'), async (req, res) => {
-  try {
-    const request_id = parseInt(req.params.id);
-    const { vendor_ids } = req.body;
-    if (!vendor_ids || !vendor_ids.length) {
-      return fail(res, 'At least one vendor is required');
-    }
-
-    const pr = await prisma.purchaseRequest.findUnique({
-      where: { request_id },
-      include: { product: true },
-    });
-    if (!pr) return fail(res, 'Purchase request not found', 404);
-    if (pr.status !== 'approved') return fail(res, 'PR must be approved before sending RFQ');
-
-    const rfqs = [];
-    for (const vid of vendor_ids) {
-      const vendorId = parseInt(vid);
-      const rfq = await prisma.vendorRFQ.create({
-        data: {
-          request_id,
-          vendor_id: vendorId,
-          sent_by: req.user.user_id,
-          status: 'pending',
-        }
-      });
-      rfqs.push(rfq);
-
-      try {
-        const vendor = await prisma.vendor.findUnique({ where: { vendor_id: vendorId } });
-        if (vendor?.email) {
-          await sendRFQEmail({
-            to: vendor.email,
-            vendorName: vendor.vendor_name,
-            productName: pr.product?.name || 'Unknown Product',
-            quantity: pr.quantity,
-            prNumber: pr.pr_number || `PR-${pr.request_id}`,
-            requiredDate: pr.required_date,
-          });
-        }
-      } catch (mailErr) {
-        console.error('[PR] RFQ email failed:', mailErr.message);
+    const sent = [];
+    for (const v of vendors) {
+      const existing = await prisma.vendorRFQ.findFirst({ where: { request_id: pr.request_id, vendor_id: v.vendor_id } });
+      if (!existing) {
+        await prisma.vendorRFQ.create({
+          data: { request_id: pr.request_id, vendor_id: v.vendor_id, sent_by: req.user.user_id },
+        });
       }
+
+      // Vendors without a login get (or refresh) an invite link.
+      let link = `${FRONTEND_URL()}/vendor-portal`;
+      if (!v.user_id) {
+        const token = newInviteToken();
+        await prisma.vendor.update({
+          where: { vendor_id: v.vendor_id },
+          data: { invite_token: token, invite_expires_at: new Date(Date.now() + INVITE_DAYS * 864e5) },
+        });
+        link = `${FRONTEND_URL()}/vendor-invite/${token}`;
+      }
+
+      notify([{ user_id: v.user_id || undefined, email: v.email }], {
+        type: 'rfq_received',
+        message: `Quotation requested for ${pr.pr_number} (closes ${closesAt.toDateString()})`,
+        email: {
+          subject: `Request for quotation: ${pr.pr_number}`,
+          heading: 'Request for quotation',
+          intro: 'Please quote a price per item and your expected delivery date.',
+          rows: [
+            ['Reference', pr.pr_number],
+            ['Items', pr.items.map((i) => `${i.product.name} × ${i.quantity} ${i.product.unit}${i.notes ? ` (${i.notes})` : ''}`).join('; ')],
+            ['Needed by', pr.required_date ? pr.required_date.toDateString() : null],
+            ['Quotes close', closesAt.toString()],
+          ],
+          cta: { label: v.user_id ? 'Submit quotation' : 'Accept invite and quote', url: link },
+        },
+      });
+      sent.push({ vendor_id: v.vendor_id, vendor_name: v.vendor_name, email: v.email, invited: !v.user_id, new: !existing });
     }
 
     await prisma.purchaseRequest.update({
-      where: { request_id },
-      data: { status: 'rfq_sent' }
+      where: { request_id: pr.request_id },
+      data: { status: 'rfq_sent', rfq_closes_at: closesAt },
     });
 
-    return ok(res, rfqs, `RFQ sent to ${rfqs.length} vendor(s)`);
-  } catch (err) {
-    console.error('[PR SEND-RFQ ERROR]', err.message);
-    console.error('[PR SEND-RFQ STACK]', err.stack);
-    return res.status(500).json({ success: false, message: 'Failed to send RFQ' });
-  }
-});
-
-// PUT — reject
-router.put('/:id/reject', requireAuth, requireRole('Admin'), async (req, res) => {
-  try {
-    const requestId = parseInt(req.params.id, 10);
-    if (isNaN(requestId) || requestId <= 0) {
-      return fail(res, 'Invalid request ID format', 400);
-    }
-    const { reason, comments } = req.body;
-    const rejectReason = reason || comments;
-
-    const pr = await prisma.purchaseRequest.findUnique({ where: { request_id: requestId } });
-    if (!pr) return fail(res, 'Purchase request not found', 404);
-    if (pr.status !== 'pending') return fail(res, `Cannot reject a request with status: ${pr.status}`);
-
-    await prisma.$transaction([
-      prisma.purchaseRequest.update({
-        where: { request_id: requestId },
-        data: { status: 'rejected' }
-      }),
-      prisma.approvalLog.create({
-        data: {
-          request_id: requestId,
-          approver_id: req.user.user_id,
-          action: 'rejected',
-          comments: rejectReason || 'No reason provided',
-        }
-      })
-    ]);
-    return ok(res, null, 'Purchase request rejected');
-  } catch (err) {
-    console.error('[PR REJECT ERROR]', err.message);
-    console.error('[PR REJECT STACK]', err.stack);
-    return res.status(500).json({ success: false, message: 'Failed to reject purchase request' });
-  }
-});
-
-// PUT — admin remarks on a PR
-router.put('/:id/remarks', requireAuth, requireRole('Admin'), async (req, res) => {
-  try {
-    const requestId = parseInt(req.params.id, 10);
-    if (isNaN(requestId) || requestId <= 0) {
-      return fail(res, 'Invalid request ID format', 400);
-    }
-    const { admin_remarks } = req.body;
-    if (admin_remarks == null) return fail(res, 'admin_remarks is required', 400);
-
-    const pr = await prisma.purchaseRequest.update({
-      where: { request_id: requestId },
-      data: { admin_remarks: String(admin_remarks) },
-      include: { product: true, items: { include: { product: true } } },
-    });
-
-    return ok(res, pr, 'Remarks updated');
-  } catch (err) {
-    if (err.code === 'P2025') return fail(res, 'Purchase request not found', 404);
-    console.error('[PR REMARKS ERROR]', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to update remarks' });
-  }
+    return ok(res, sent, `RFQ sent to ${sent.length} vendor(s)`);
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

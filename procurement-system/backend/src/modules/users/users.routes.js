@@ -1,11 +1,49 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('../../utils/password'); // lazy-loads bcrypt
 const prisma = require('../../config/db');
 const { requireAuth, requireRole } = require('../../middleware/auth.middleware');
 const { ok, fail } = require('../../utils/response');
 const { sendWelcomeEmail, sendPasswordChangedEmail } = require('../../utils/mailer');
+const {
+  DEPARTMENT_NAMES, DEFAULT_DEPARTMENT, DEPARTMENT_ROLES, normalizeDepartment, isSuperAdmin,
+} = require('../../utils/departments');
 
 const router = express.Router();
+
+// ── Department rules ─────────────────────────────────────────
+// Super admin (Admin with no department): every user, any role, any department.
+// HOD (Admin with a department): sees users of their department; can create and manage
+// only faculty (Department User) of that department.
+const FACULTY = 'Department User';
+
+/** Department to store for a user of `roleName`, or { error }. */
+function resolveDepartment(actor, roleName, requested) {
+  if (!DEPARTMENT_ROLES.includes(roleName)) return { department: null }; // college-wide roles
+  if (!isSuperAdmin(actor)) return { department: actor.department };
+  if (roleName === 'Admin' && requested === 'ALL') return { department: null }; // another super admin
+  if (requested == null || requested === '') return { department: DEFAULT_DEPARTMENT };
+  const department = normalizeDepartment(requested);
+  if (!department) return { error: `Unknown department. Use one of: ${DEPARTMENT_NAMES.join(', ')}` };
+  return { department };
+}
+
+/** Middleware for /:id routes: load the target user and check the actor may manage them. */
+async function manageable(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return fail(res, 'Invalid user id', 400);
+    const target = await prisma.user.findUnique({ where: { user_id: id }, include: { role: true } });
+    if (!target) return fail(res, 'User not found', 404);
+    if (!isSuperAdmin(req.user)) {
+      const own = target.department === req.user.department && target.role?.role_name === FACULTY;
+      if (!own) return fail(res, 'You can only manage faculty of your own department', 403);
+    }
+    req.target = target;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
 
 const sanitizeUser = (u) => {
   if (!u) return null;
@@ -18,9 +56,13 @@ const sanitizeUser = (u) => {
 
 router.get('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
   try {
+    let where = {};
+    if (!isSuperAdmin(req.user)) where = { department: req.user.department };
+    else if (req.query.department) where = { department: normalizeDepartment(req.query.department) || '__none__' };
     const users = await prisma.user.findMany({
+      where,
       include: { role: true },
-      orderBy: { created_at: 'desc' },
+      orderBy: [{ department: 'asc' }, { created_at: 'desc' }],
     });
     const data = users.map((u) => sanitizeUser({ ...u, role: u.role }));
     return ok(res, data);
@@ -47,6 +89,11 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
       return fail(res, 'Password must be at least 8 characters', 400);
     }
     if (!role_name) return fail(res, 'role_name is required', 400);
+    if (!isSuperAdmin(req.user) && role_name !== FACULTY) {
+      return fail(res, 'HODs can only add faculty to their own department', 403);
+    }
+    const dept = resolveDepartment(req.user, String(role_name), department);
+    if (dept.error) return fail(res, dept.error, 400);
 
     const existing = await prisma.user.findUnique({ where: { email: String(email).trim() } });
     if (existing) return fail(res, 'Email is already registered', 400);
@@ -63,7 +110,7 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
           email: String(email).trim().toLowerCase(),
           password: hash,
           role_id: role.role_id,
-          department: department != null ? String(department) : null,
+          department: dept.department,
           phone: phone != null ? String(phone) : null,
         },
         include: { role: true },
@@ -116,7 +163,7 @@ router.post('/create-vendor', requireAuth, requireRole('Admin'), async (req, res
     const vendorRole = await prisma.role.findUnique({ where: { role_name: 'Vendor' } });
     if (!vendorRole) return fail(res, 'Vendor role not found', 500);
 
-    const defaultPassword = 'vendor123';
+    const defaultPassword = 'demo1234';
     const hashedPassword = await bcrypt.hash(defaultPassword, 12);
 
     const created = await prisma.$transaction(async (tx) => {
@@ -152,7 +199,7 @@ router.post('/create-vendor', requireAuth, requireRole('Admin'), async (req, res
         to: normalizedEmail,
         name: String(name).trim(),
         role: 'Vendor',
-        password: 'vendor123',
+        password: 'demo1234',
       });
     } catch (mailErr) {
       console.error('[USERS] Vendor welcome email failed:', mailErr.message);
@@ -164,7 +211,8 @@ router.post('/create-vendor', requireAuth, requireRole('Admin'), async (req, res
   }
 });
 
-router.put('/:id', requireAuth, requireRole('Admin'), async (req, res, next) => {
+// ':id(\\d+)' so self-service routes such as /change-my-password are not caught here.
+router.put('/:id(\\d+)', requireAuth, requireRole('Admin'), manageable, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return fail(res, 'Invalid user id', 400);
@@ -184,14 +232,28 @@ router.put('/:id', requireAuth, requireRole('Admin'), async (req, res, next) => 
       if (clash) return fail(res, 'Email already in use', 400);
       data.email = em;
     }
-    if (department !== undefined) data.department = department;
     if (phone !== undefined) data.phone = phone;
     if (typeof is_active === 'boolean') data.is_active = is_active;
+    if (is_active === false && id === req.user.user_id) return fail(res, 'You cannot deactivate your own account', 400);
 
+    const nextRole = role_name != null ? String(role_name) : req.target.role?.role_name;
+    if (!isSuperAdmin(req.user) && nextRole !== FACULTY) {
+      return fail(res, 'HODs can only manage faculty of their own department', 403);
+    }
     if (role_name != null) {
-      const role = await prisma.role.findUnique({ where: { role_name: String(role_name) } });
+      const role = await prisma.role.findUnique({ where: { role_name: nextRole } });
       if (!role) return fail(res, `Role not found: ${role_name}`, 400);
       data.role_id = role.role_id;
+    }
+    // Recompute the department when the role or department changes.
+    if (department !== undefined || role_name != null) {
+      const requested = department !== undefined ? department : (req.target.department ?? (nextRole === 'Admin' ? 'ALL' : undefined));
+      const dept = resolveDepartment(req.user, nextRole, requested);
+      if (dept.error) return fail(res, dept.error, 400);
+      if (id === req.user.user_id && isSuperAdmin(req.user) && (dept.department || nextRole !== 'Admin')) {
+        return fail(res, 'You cannot remove your own college-wide access', 400);
+      }
+      data.department = dept.department;
     }
 
     const updated = await prisma.user.update({
@@ -207,7 +269,7 @@ router.put('/:id', requireAuth, requireRole('Admin'), async (req, res, next) => 
   }
 });
 
-router.put('/:id/reset-password', requireAuth, requireRole('Admin'), async (req, res, next) => {
+router.put('/:id(\\d+)/reset-password', requireAuth, requireRole('Admin'), manageable, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { new_password: newPassword } = req.body;
@@ -226,7 +288,7 @@ router.put('/:id/reset-password', requireAuth, requireRole('Admin'), async (req,
   }
 });
 
-router.delete('/:id', requireAuth, requireRole('Admin'), async (req, res, next) => {
+router.delete('/:id(\\d+)', requireAuth, requireRole('Admin'), manageable, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (id === req.user.user_id) {
@@ -315,7 +377,7 @@ router.put('/me/change-email', requireAuth, async (req, res, next) => {
 });
 
 // PUT — admin changes a user's password by ID
-router.put('/:id/change-password', requireAuth, requireRole('Admin'), async (req, res, next) => {
+router.put('/:id(\\d+)/change-password', requireAuth, requireRole('Admin'), manageable, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return fail(res, 'Invalid user id', 400);
@@ -347,7 +409,7 @@ router.put('/:id/change-password', requireAuth, requireRole('Admin'), async (req
 });
 
 // PUT — admin changes a user's email by ID
-router.put('/:id/change-email', requireAuth, requireRole('Admin'), async (req, res, next) => {
+router.put('/:id(\\d+)/change-email', requireAuth, requireRole('Admin'), manageable, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return fail(res, 'Invalid user id', 400);

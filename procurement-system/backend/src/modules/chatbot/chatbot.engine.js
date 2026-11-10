@@ -1,3 +1,5 @@
+const { inventoryScope } = require('../../utils/departments');
+
 const INTENTS = [
   {
     name: 'CHECK_STOCK_ITEM',
@@ -204,45 +206,6 @@ const formatDate = (d) => {
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / 86400000);
-
-const statusEmoji = (status) => {
-  const key = String(status || '').toLowerCase();
-  const map = {
-    pending: '⏳',
-    approved: '✅',
-    rejected: '❌',
-    dispatched: '🚚',
-    completed: '✅',
-    rfq_sent: '📤',
-    quotation_received: '📩',
-    quotation_approved: '✅',
-    acknowledged: '👍',
-    draft: '📝',
-    issued: '📋',
-    bill_released: '💰',
-    at_gate: '🚪',
-    blocked: '🚫',
-    uploaded: '📎',
-    admin_signed: '✍️',
-    watchman_confirmed: '🛡️',
-    ready_for_accountant: '📋',
-    released: '💰',
-    documents_uploaded: '📂',
-    wo_created: '📦',
-  };
-  return map[key] || '📌';
-};
-
-const priorityEmoji = (priority) => {
-  const key = String(priority || '').toLowerCase();
-  const map = {
-    low: '🟢',
-    medium: '🟡',
-    high: '🟠',
-    urgent: '🔴',
-  };
-  return map[key] || '🟡';
-};
 
 const PRODUCT_SYNONYMS = {
   laptop: ['computer', 'macbook', 'pc', 'notebook', 'lappy', 'thinkpad', 'chromebook', 'ultrabook', 'lenovo'],
@@ -460,7 +423,10 @@ const safeHandler = (handler, fallbackSuggestions = ['Help', 'Show inventory']) 
   }
 };
 
-const handleCheckStockItem = safeHandler(async ({ prisma, extracted }) => {
+// Stock answers follow the same department scope as the Inventory page.
+const stockScope = ({ userRole, userDept }) => inventoryScope({ role: userRole, department: userDept });
+
+const handleCheckStockItem = safeHandler(async ({ prisma, extracted, userRole, userDept }) => {
   if (!extracted.extractedProduct) {
     return {
       text: "I couldn't identify the product. Please include a product name or SKU.",
@@ -469,8 +435,7 @@ const handleCheckStockItem = safeHandler(async ({ prisma, extracted }) => {
   }
   const product = extracted.extractedProduct;
   const rows = await prisma.inventory.findMany({
-    where: { product_id: product.product_id },
-    include: { warehouse: true },
+    where: { product_id: product.product_id, ...stockScope({ userRole, userDept }) },
   });
   if (!rows.length) {
     return {
@@ -479,7 +444,7 @@ const handleCheckStockItem = safeHandler(async ({ prisma, extracted }) => {
     };
   }
 
-  const lines = [`📦 Stock for ${product.name} (${product.sku || 'N/A'})`];
+  const lines = [`Stock for ${product.name} (${product.sku || 'N/A'})`];
   let total = 0;
   let hasLow = false;
   for (const row of rows) {
@@ -488,11 +453,10 @@ const handleCheckStockItem = safeHandler(async ({ prisma, extracted }) => {
     const low = qty <= Number(row.reorder_point || 0);
     const out = qty === 0;
     hasLow = hasLow || low;
-    const label = out ? '🔴 OUT' : low ? '⚠️ LOW' : '✅ OK';
-    lines.push(`- ${row.warehouse?.name || 'Warehouse'}: ${formatNumber(qty)} ${product.unit || 'units'} | ${label} | Reorder ${formatNumber(row.reorder_point)} | Min ${formatNumber(row.min_stock)} | Max ${formatNumber(row.max_stock)}`);
+    const label = out ? 'OUT' : low ? 'LOW' : 'OK';
+    lines.push(`- In stock: ${formatNumber(qty)} ${product.unit || 'units'} | ${label} | Reorder ${formatNumber(row.reorder_point)} | Min ${formatNumber(row.min_stock)} | Max ${formatNumber(row.max_stock)}`);
   }
-  if (rows.length > 1) lines.push(`Total across warehouses: ${formatNumber(total)} ${product.unit || 'units'}`);
-  if (hasLow) lines.push(`⚠️ Reorder recommended for ${product.name}.`);
+  if (hasLow) lines.push(`Reorder recommended for ${product.name}.`);
 
   return {
     text: lines.join('\n'),
@@ -500,9 +464,10 @@ const handleCheckStockItem = safeHandler(async ({ prisma, extracted }) => {
   };
 });
 
-const handleCheckAllStock = safeHandler(async ({ prisma }) => {
+const handleCheckAllStock = safeHandler(async ({ prisma, ...who }) => {
   const inventory = await prisma.inventory.findMany({
-    include: { product: { include: { category: true } }, warehouse: true },
+    where: stockScope(who),
+    include: { product: { include: { category: true } } },
     orderBy: { quantity_available: 'asc' },
   });
   if (!inventory.length) {
@@ -515,53 +480,53 @@ const handleCheckAllStock = safeHandler(async ({ prisma }) => {
 
   const block = (title, items) => {
     if (!items.length) return `${title}\n- None`;
-    return `${title}\n${items.map((item) => `- ${item.product?.name} (${item.warehouse?.name || 'Warehouse'}): ${formatNumber(item.quantity_available)} ${item.product?.unit || 'units'} | RP ${formatNumber(item.reorder_point)}`).join('\n')}`;
+    return `${title}\n${items.map((item) => `- ${item.product?.name}: ${formatNumber(item.quantity_available)} ${item.product?.unit || 'units'} | RP ${formatNumber(item.reorder_point)}`).join('\n')}`;
   };
 
   return {
-    text: `Inventory summary: ${inventory.length} records\n\n${block('🔴 Out of stock', outOfStock)}\n\n${block('⚠️ Low stock', lowStock)}\n\n${block('✅ Healthy stock', healthy)}`,
+    text: `Inventory summary: ${inventory.length} records\n\n${block('Out of stock', outOfStock)}\n\n${block('Low stock', lowStock)}\n\n${block('Healthy stock', healthy)}`,
     suggestions: ['Show low stock', 'Out of stock items', 'Order critical items', 'Daily summary'],
   };
 });
 
-const handleLowStock = safeHandler(async ({ prisma }) => {
+const handleLowStock = safeHandler(async ({ prisma, ...who }) => {
   const inventory = await prisma.inventory.findMany({
-    include: { product: true, warehouse: true },
+    where: stockScope(who),
+    include: { product: true },
   });
   const lowItems = inventory.filter((item) => Number(item.quantity_available) <= Number(item.reorder_point || 0));
   if (!lowItems.length) {
     return {
-      text: '✅ Great news — no items are currently at or below reorder point.',
+      text: 'No items are at or below their reorder point.',
       suggestions: ['Check all stock', 'Daily summary'],
     };
   }
   const lines = lowItems.map((item) => {
     const qty = Number(item.quantity_available || 0);
-    const icon = qty === 0 ? '🔴' : '⚠️';
-    return `${icon} ${item.product?.name}: ${formatNumber(qty)} left (reorder at ${formatNumber(item.reorder_point)}) in ${item.warehouse?.name || 'Warehouse'}`;
+    return `${qty === 0 ? 'OUT' : 'LOW'} ${item.product?.name}: ${formatNumber(qty)} left (reorder at ${formatNumber(item.reorder_point)})`;
   });
-  lines.push('Tip: type "order [name]" to create a purchase request quickly.');
+  lines.push('Tip: raise a purchase request (with the principal\'s letter) from the Purchase Requests page.');
   return {
     text: lines.join('\n'),
     suggestions: ['Order laptops', 'Check all stock', 'Show pending requests'],
   };
 });
 
-const handleOutOfStock = safeHandler(async ({ prisma }) => {
+const handleOutOfStock = safeHandler(async ({ prisma, ...who }) => {
   const rows = await prisma.inventory.findMany({
-    where: { quantity_available: 0 },
-    include: { product: true, warehouse: true },
+    where: { quantity_available: 0, ...stockScope(who) },
+    include: { product: true },
   });
   if (!rows.length) {
     return { text: 'No out-of-stock items right now.', suggestions: ['Show low stock', 'Check all stock'] };
   }
   return {
-    text: `Out of stock items (${rows.length}):\n${rows.map((row) => `- ${row.product?.name} at ${row.warehouse?.name || 'Warehouse'}`).join('\n')}`,
+    text: `Out of stock items (${rows.length}):\n${rows.map((row) => `- ${row.product?.name}`).join('\n')}`,
     suggestions: ['Order critical items', 'Show low stock', 'Daily summary'],
   };
 });
 
-const handleCreatePR = safeHandler(async ({ prisma, userId, userDept, extracted }) => {
+const handleCreatePR = safeHandler(async ({ extracted }) => {
   if (!extracted.extractedProduct) {
     return {
       text: 'Please tell me which product you want to order.',
@@ -569,45 +534,16 @@ const handleCreatePR = safeHandler(async ({ prisma, userId, userDept, extracted 
     };
   }
 
-  const warehouse = await prisma.warehouse.findFirst();
-  if (!warehouse) {
-    return {
-      text: 'No warehouse is configured yet, so I cannot create a purchase request.',
-      suggestions: ['Contact admin', 'Show inventory'],
-    };
-  }
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const rawDept = String(userDept || 'GEN').replace(/[^a-zA-Z]/g, '').toUpperCase();
-  const deptCode = (rawDept || 'GEN').slice(0, 3).padEnd(3, 'X');
-  const count = await prisma.purchaseRequest.count();
-  const sequence = String(count + 1).padStart(4, '0');
-  const prNumber = `PR-${year}-${deptCode}-${sequence}`;
-
-  const created = await prisma.purchaseRequest.create({
-    data: {
-      pr_number: prNumber,
-      requested_by: userId,
-      product_id: extracted.extractedProduct.product_id,
-      warehouse_id: warehouse.warehouse_id,
-      quantity: extracted.extractedQuantity || 1,
-      priority: extracted.extractedPriority || 'medium',
-      justification: 'Requested via InventBot',
-      status: 'pending',
-    },
-  });
-
+  // Requests need the principal's signed letter, which cannot be attached in chat.
+  const qty = extracted.extractedQuantity || 1;
   return {
-    text: `✅ Purchase Request Created\n- PR Number: ${prNumber}\n- Product: ${extracted.extractedProduct.name}\n- Quantity: ${formatNumber(created.quantity)} ${extracted.extractedProduct.unit || 'units'}\n- Priority: ${priorityEmoji(created.priority)} ${String(created.priority).toUpperCase()}\n- Status: ${statusEmoji(created.status)} ${String(created.status).toUpperCase()}`,
-    suggestions: ['Show my requests', `Status of ${prNumber}`, 'What needs my attention'],
+    text: `To order ${formatNumber(qty)} ${extracted.extractedProduct.unit || 'units'} of ${extracted.extractedProduct.name}, open Purchase Requests → New request.\nYou will need the principal's signed letter (PDF or image) and a required-by date.`,
+    suggestions: ['Show my requests', `How many ${extracted.extractedProduct.name} do we have`, 'Help'],
     actionResult: {
-      type: 'PURCHASE_REQUEST_CREATED',
-      pr_number: created.pr_number,
-      request_id: created.request_id,
+      type: 'OPEN_PURCHASE_REQUEST_FORM',
+      product_id: extracted.extractedProduct.product_id,
       product_name: extracted.extractedProduct.name,
-      quantity: created.quantity,
-      priority: created.priority,
+      quantity: qty,
     },
   };
 });
@@ -617,13 +553,13 @@ const handleMyRequests = safeHandler(async ({ prisma, userId }) => {
     where: { requested_by: userId },
     take: 10,
     orderBy: { requested_at: 'desc' },
-    include: { product: true },
+    include: { items: { include: { product: true } } },
   });
   if (!requests.length) {
     return { text: 'You have no purchase requests yet.', suggestions: ['Order 2 laptops', 'Show all requests', 'Help'] };
   }
   return {
-    text: `Your recent requests:\n${requests.map((item) => `- ${item.pr_number || `PR-${item.request_id}`}: ${item.product?.name} x${formatNumber(item.quantity)} | ${statusEmoji(item.status)} ${item.status} | ${priorityEmoji(item.priority)} ${item.priority} | ${formatDate(item.requested_at)}`).join('\n')}`,
+    text: `Your recent requests:\n${requests.map((item) => `- ${item.pr_number || `PR-${item.request_id}`}: ${itemsLabel(item)} | ${statusLabel(item.status)} | ${formatDate(item.requested_at)}`).join('\n')}`,
     suggestions: ['Show all requests', 'Track PR status', 'Daily summary'],
   };
 });
@@ -632,7 +568,7 @@ const handleAllRequests = safeHandler(async ({ prisma }) => {
   const requests = await prisma.purchaseRequest.findMany({
     take: 15,
     orderBy: { requested_at: 'desc' },
-    include: { product: true, user: true },
+    include: { items: { include: { product: true } }, user: true },
   });
   if (!requests.length) {
     return { text: 'No purchase requests found.', suggestions: ['Create purchase request', 'Help'] };
@@ -642,24 +578,30 @@ const handleAllRequests = safeHandler(async ({ prisma }) => {
   const shownPending = pending.slice(0, 5);
   const overflow = pending.length - shownPending.length;
   return {
-    text: `Request summary\n- Pending: ${pending.length}\n- Approved: ${approved.length}\n- Total (recent): ${requests.length}\n\nPending list:\n${shownPending.length ? shownPending.map((item) => `- ${item.pr_number || `PR-${item.request_id}`}: ${item.product?.name} x${formatNumber(item.quantity)} by ${item.user?.name || 'Unknown'}`).join('\n') : '- None'}${overflow > 0 ? `\n- ...and ${overflow} more pending requests` : ''}`,
+    text: `Request summary\n- Pending: ${pending.length}\n- Approved: ${approved.length}\n- Total (recent): ${requests.length}\n\nPending list:\n${shownPending.length ? shownPending.map((item) => `- ${item.pr_number || `PR-${item.request_id}`}: ${itemsLabel(item)} by ${item.user?.name || 'Unknown'}`).join('\n') : '- None'}${overflow > 0 ? `\n- ...and ${overflow} more pending requests` : ''}`,
     suggestions: ['Show my requests', 'Track PR-2026-IT-0001', 'Daily summary'],
   };
 });
 
+// v3 order cycle
 const nextStepByStatus = {
-  pending: 'Waiting for admin approval',
-  approved: 'Waiting for RFQ to vendors',
-  rfq_sent: 'Awaiting vendor quotations',
-  quotation_received: 'Admin is reviewing',
-  quotation_approved: 'Work Order being prepared',
-  wo_issued: 'Work Order issued to vendor',
-  dispatched: 'Vendor has dispatched goods',
-  at_gate: 'Goods are at the gate',
-  documents_uploaded: 'Accountant review pending',
-  bill_released: 'Procurement complete ✅',
+  pending: 'Waiting for HOD approval',
+  approved: 'HOD will send the RFQ to vendors',
   rejected: 'Request was rejected',
+  rfq_sent: 'Vendors are quoting; HOD selects the best quotation after the closing date',
+  wo_issued: 'Work order issued; waiting for the vendor invoice and dispatch',
+  in_delivery: 'Goods are being delivered (gate check, then goods review)',
+  completed: 'All goods accepted; billing handles payment',
 };
+
+const STATUS_LABELS = {
+  pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected', rfq_sent: 'Quotations open',
+  wo_issued: 'Work order issued', in_delivery: 'In delivery', completed: 'Completed',
+  issued: 'Issued', invoiced: 'Invoiced', dispatched: 'Dispatched', gate_blocked: 'Blocked at gate',
+  received: 'Awaiting review', reviewed: 'Awaiting bill approval', bill_approved: 'Awaiting payment', paid: 'Paid',
+};
+const statusLabel = (s) => STATUS_LABELS[String(s || '').toLowerCase()] || s;
+const itemsLabel = (pr) => (pr.items || []).map((i) => `${i.product?.name || 'Item'} x${formatNumber(i.quantity)}`).join(', ') || 'No items';
 
 const handleRequestStatus = safeHandler(async ({ prisma, extracted }) => {
   if (!extracted.extractedPRNumber) {
@@ -670,7 +612,7 @@ const handleRequestStatus = safeHandler(async ({ prisma, extracted }) => {
   }
   const request = await prisma.purchaseRequest.findUnique({
     where: { pr_number: extracted.extractedPRNumber.toUpperCase() },
-    include: { product: true, user: true, warehouse: true },
+    include: { items: { include: { product: true } }, user: true },
   });
   if (!request) {
     return {
@@ -678,9 +620,9 @@ const handleRequestStatus = safeHandler(async ({ prisma, extracted }) => {
       suggestions: ['Show all requests', 'Show my requests'],
     };
   }
-  const nextStep = nextStepByStatus[String(request.status || '').toLowerCase()] || 'Status updated. Please check with procurement admin.';
+  const nextStep = nextStepByStatus[String(request.status || '').toLowerCase()] || 'Status updated. Please check with your HOD.';
   return {
-    text: `${statusEmoji(request.status)} ${request.pr_number}\n- Product: ${request.product?.name}\n- Quantity: ${formatNumber(request.quantity)} ${request.product?.unit || 'units'}\n- Requested by: ${request.user?.name || 'Unknown'}\n- Warehouse: ${request.warehouse?.name || 'N/A'}\n- Priority: ${priorityEmoji(request.priority)} ${request.priority}\n- Status: ${request.status}\n- Requested on: ${formatDate(request.requested_at)}\n- Estimated cost: ${request.estimated_cost ? formatCurrency(request.estimated_cost) : 'N/A'}\n\nNext step: ${nextStep}`,
+    text: `${request.pr_number}\n- Items: ${itemsLabel(request)}\n- Requested by: ${request.user?.name || 'Unknown'}${request.user?.department ? ` (${request.user.department})` : ''}\n- Required by: ${request.required_date ? formatDate(request.required_date) : 'N/A'}\n- Status: ${statusLabel(request.status)}\n- Requested on: ${formatDate(request.requested_at)}\n\nNext step: ${nextStep}`,
     suggestions: ['Show all requests', 'Show work orders', 'Daily summary'],
   };
 });
@@ -689,13 +631,13 @@ const handleWorkOrders = safeHandler(async ({ prisma }) => {
   const orders = await prisma.workOrder.findMany({
     take: 10,
     orderBy: { created_at: 'desc' },
-    include: { vendor: true, request: { include: { product: true } } },
+    include: { vendor: true, request: { include: { items: { include: { product: true } } } } },
   });
   if (!orders.length) {
     return { text: 'No work orders found.', suggestions: ['Show pending requests', 'Help'] };
   }
   return {
-    text: `Recent work orders:\n${orders.map((wo) => `- ${wo.wo_number}: ${wo.items_description} | Qty ${formatNumber(wo.quantity)} | Vendor ${wo.vendor?.vendor_name || 'N/A'} | ${statusEmoji(wo.status)} ${wo.status}`).join('\n')}`,
+    text: `Recent work orders:\n${orders.map((wo) => `- ${wo.wo_number}: ${itemsLabel(wo.request)} | Vendor ${wo.vendor?.vendor_name || 'N/A'} | ${statusLabel(wo.status)}`).join('\n')}`,
     suggestions: ['Status of WO-2026-IT-0001', 'Show vendors', 'Daily summary'],
   };
 });
@@ -709,16 +651,20 @@ const handleWOStatus = safeHandler(async ({ prisma, extracted }) => {
   }
   const wo = await prisma.workOrder.findUnique({
     where: { wo_number: extracted.extractedWONumber.toUpperCase() },
-    include: { vendor: true, request: true, gate_entry: true },
+    include: {
+      vendor: true,
+      request: { include: { items: { include: { product: true } } } },
+      shipments: { orderBy: { created_at: 'asc' } },
+    },
   });
   if (!wo) {
     return { text: `I couldn't find ${extracted.extractedWONumber}.`, suggestions: ['Show work orders', 'Help'] };
   }
-  const gate = wo.gate_entry
-    ? `\nGate Entry\n- Entry No: ${wo.gate_entry.entry_number}\n- Vehicle: ${wo.gate_entry.vehicle_number}\n- Driver: ${wo.gate_entry.driver_name}\n- Status: ${statusEmoji(wo.gate_entry.status)} ${wo.gate_entry.status}`
-    : '\nGate Entry\n- Not recorded yet';
+  const deliveries = wo.shipments.length
+    ? `\nDeliveries\n${wo.shipments.map((s) => `- ${s.shipment_number}: invoice ${s.invoice_number} | ${statusLabel(s.status)}${s.vehicle_number ? ` | vehicle ${s.vehicle_number}` : ''}`).join('\n')}`
+    : '\nDeliveries\n- None yet';
   return {
-    text: `${statusEmoji(wo.status)} ${wo.wo_number}\n- Description: ${wo.items_description}\n- Quantity: ${formatNumber(wo.quantity)}\n- Vendor: ${wo.vendor?.vendor_name || 'N/A'}\n- Agreed price: ${formatCurrency(wo.agreed_price)}\n- Delivery deadline: ${formatDate(wo.delivery_deadline)}\n- Status: ${wo.status}\n- Created: ${formatDate(wo.created_at)}${gate}`,
+    text: `${wo.wo_number}\n- Items: ${itemsLabel(wo.request)}\n- Vendor: ${wo.vendor?.vendor_name || 'N/A'}\n- Agreed price: ${formatCurrency(wo.agreed_price)}\n- Delivery deadline: ${formatDate(wo.delivery_deadline)}\n- Status: ${statusLabel(wo.status)}\n- Created: ${formatDate(wo.created_at)}${deliveries}`,
     suggestions: ['Show work orders', 'Show pending bills', 'Daily summary'],
   };
 });
@@ -734,10 +680,10 @@ const handleListVendors = safeHandler(async ({ prisma }) => {
   };
 });
 
-const handleExpiringWarranties = safeHandler(async ({ prisma }) => {
+const handleExpiringWarranties = safeHandler(async ({ prisma, ...who }) => {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + 60);
-  const warranties = await prisma.warranty.findMany({ include: { product: true, vendor: true } });
+  const warranties = await prisma.warranty.findMany({ where: stockScope(who), include: { product: true, vendor: true } });
   const relevant = warranties.filter((item) => new Date(item.end_date) <= cutoff);
   if (!relevant.length) {
     return { text: 'No warranties expiring in the next 60 days.', suggestions: ['Show subscriptions', 'Daily summary'] };
@@ -746,15 +692,15 @@ const handleExpiringWarranties = safeHandler(async ({ prisma }) => {
   const expiringSoon = relevant.filter((item) => daysUntil(item.end_date) >= 0);
   const section = (title, items, formatter) => `${title}\n${items.length ? items.map(formatter).join('\n') : '- None'}`;
   return {
-    text: `${section('🔴 Already expired', expired, (item) => `- ${item.product?.name} (${item.vendor?.vendor_name || 'Vendor'}) | Ended ${formatDate(item.end_date)}`)}\n\n${section('⚠️ Expiring soon', expiringSoon, (item) => `- ${item.product?.name} (${item.vendor?.vendor_name || 'Vendor'}) | ${daysUntil(item.end_date)} day(s) left | Ends ${formatDate(item.end_date)}`)}`,
+    text: `${section('Already expired', expired, (item) => `- ${item.product?.name} (${item.vendor?.vendor_name || 'Vendor'}) | Ended ${formatDate(item.end_date)}`)}\n\n${section('Expiring soon', expiringSoon, (item) => `- ${item.product?.name} (${item.vendor?.vendor_name || 'Vendor'}) | ${daysUntil(item.end_date)} day(s) left | Ends ${formatDate(item.end_date)}`)}`,
     suggestions: ['Show subscriptions', 'What needs my attention', 'Help'],
   };
 });
 
-const handleExpiringSubscriptions = safeHandler(async ({ prisma }) => {
+const handleExpiringSubscriptions = safeHandler(async ({ prisma, ...who }) => {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + 60);
-  const subscriptions = await prisma.subscription.findMany({ include: { product: true } });
+  const subscriptions = await prisma.subscription.findMany({ where: stockScope(who) });
   const relevant = subscriptions
     .filter((item) => new Date(item.expiry_date) <= cutoff)
     .sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date));
@@ -763,8 +709,8 @@ const handleExpiringSubscriptions = safeHandler(async ({ prisma }) => {
   }
   const lines = relevant.map((item) => {
     const days = daysUntil(item.expiry_date);
-    const status = days < 0 ? '🔴 EXPIRED' : days <= 7 ? '🔴 CRITICAL' : '⚠️ SOON';
-    return `- ${item.service_name} (${item.product?.name || 'N/A'}) | ${status} | Expiry ${formatDate(item.expiry_date)} | Days ${days} | Auto renew: ${item.auto_renew ? 'Yes' : 'No'}`;
+    const status = days < 0 ? 'EXPIRED' : days <= 7 ? 'CRITICAL' : 'SOON';
+    return `- ${item.service_name}${item.provider ? ` (${item.provider})` : ''} | ${item.department} | ${status} | Expiry ${formatDate(item.expiry_date)} | Days ${days} | Auto renew: ${item.auto_renew ? 'Yes' : 'No'}`;
   });
   return {
     text: `Subscription expiry watchlist:\n${lines.join('\n')}`,
@@ -772,38 +718,30 @@ const handleExpiringSubscriptions = safeHandler(async ({ prisma }) => {
   };
 });
 
-const handleDailySummary = safeHandler(async ({ prisma }) => {
+const handleDailySummary = safeHandler(async ({ prisma, ...who }) => {
   const today = new Date();
   const within30 = new Date();
   within30.setDate(within30.getDate() + 30);
 
-  const pendingBillsPromise = (async () => {
-    try {
-      return await prisma.billingDocument.findMany({ where: { status: 'ready_for_accountant' } });
-    } catch {
-      return [];
-    }
-  })();
-
   const [inventory, pendingPRs, activeWOs, warranties, subscriptions, pendingBills] = await Promise.all([
-    prisma.inventory.findMany(),
+    prisma.inventory.findMany({ where: stockScope(who) }),
     prisma.purchaseRequest.findMany({ where: { status: 'pending' } }),
-    prisma.workOrder.findMany({ where: { status: { in: ['issued', 'acknowledged'] } } }),
-    prisma.warranty.findMany({ where: { end_date: { gte: today, lte: within30 } } }),
-    prisma.subscription.findMany({ where: { expiry_date: { gte: today, lte: within30 } } }),
-    pendingBillsPromise,
+    prisma.workOrder.findMany({ where: { status: { in: ['issued', 'in_delivery'] } } }),
+    prisma.warranty.findMany({ where: { ...stockScope(who), end_date: { gte: today, lte: within30 } } }),
+    prisma.subscription.findMany({ where: { ...stockScope(who), expiry_date: { gte: today, lte: within30 } } }),
+    prisma.shipment.findMany({ where: { status: { in: ['reviewed', 'bill_approved'] } } }),
   ]);
 
   const lowStock = inventory.filter((item) => Number(item.quantity_available) <= Number(item.reorder_point || 0));
   const outOfStockCount = inventory.filter((item) => Number(item.quantity_available) === 0).length;
   const summaryLines = [];
-  if (pendingPRs.length > 0) summaryLines.push(`⏳ Pending Approvals: ${pendingPRs.length}`);
-  if (activeWOs.length > 0) summaryLines.push(`📋 Active Work Orders: ${activeWOs.length}`);
-  if (lowStock.length > 0) summaryLines.push(`⚠️ Low Stock: ${lowStock.length} items${outOfStockCount > 0 ? ` (+ 🔴 ${outOfStockCount} out of stock)` : ''}`);
-  if (warranties.length > 0) summaryLines.push(`🛡️ Warranties: ${warranties.length} expiring in 30 days`);
-  if (subscriptions.length > 0) summaryLines.push(`📅 Subscriptions: ${subscriptions.length} expiring in 30 days`);
-  if (pendingBills.length > 0) summaryLines.push(`💰 Pending Bills: ${pendingBills.length}`);
-  if (!summaryLines.length) summaryLines.push('✅ Everything looks stable right now.');
+  if (pendingPRs.length > 0) summaryLines.push(`Pending Approvals: ${pendingPRs.length}`);
+  if (activeWOs.length > 0) summaryLines.push(`Active Work Orders: ${activeWOs.length}`);
+  if (lowStock.length > 0) summaryLines.push(`Low Stock: ${lowStock.length} items${outOfStockCount > 0 ? ` (+ ${outOfStockCount} out of stock)` : ''}`);
+  if (warranties.length > 0) summaryLines.push(`Warranties: ${warranties.length} expiring in 30 days`);
+  if (subscriptions.length > 0) summaryLines.push(`Subscriptions: ${subscriptions.length} expiring in 30 days`);
+  if (pendingBills.length > 0) summaryLines.push(`Pending Bills: ${pendingBills.length}`);
+  if (!summaryLines.length) summaryLines.push('Everything looks stable right now.');
 
   const suggestions = [];
   if (pendingPRs.length > 0) suggestions.push('Show all requests');
@@ -819,20 +757,20 @@ const handleDailySummary = safeHandler(async ({ prisma }) => {
 });
 
 const handlePendingBills = safeHandler(async ({ prisma }) => {
-  let bills = [];
-  try {
-    bills = await prisma.billingDocument.findMany({ where: { status: 'ready_for_accountant' }, take: 10 });
-  } catch {
-    bills = [];
-  }
+  const bills = await prisma.shipment.findMany({
+    where: { status: { in: ['reviewed', 'bill_approved'] } },
+    include: { wo: { include: { vendor: true } } },
+    orderBy: { reviewed_at: 'asc' },
+    take: 10,
+  });
   if (!bills.length) {
     return {
-      text: 'No billing documents are pending accountant action right now.',
+      text: 'No bills are waiting for the accountant right now.',
       suggestions: ['Daily summary', 'Show work orders'],
     };
   }
   return {
-    text: `Pending bills for accountant: ${bills.length}\n- Ask the accountant to review and release these ready documents.`,
+    text: `Bills waiting for the accountant: ${bills.length}\n${bills.map((b) => `- ${b.shipment_number} | ${b.wo?.vendor?.vendor_name || 'Vendor'} | invoice ${b.invoice_number} | ${formatCurrency(b.billable_amount || 0)} | ${statusLabel(b.status)}`).join('\n')}`,
     suggestions: ['Daily summary', 'Show work orders', 'Show request status'],
   };
 });
@@ -852,7 +790,7 @@ const handleHelp = safeHandler(async () => ({
 const handleGreeting = safeHandler(async ({ userName }) => {
   const name = userName || 'there';
   const greetings = [
-    `Hello ${name}! 👋 Ready to manage inventory smarter today.`,
+    `Hello ${name}. What do you need?`,
     `Hi ${name}! I am InventBot, your inventory assistant.`,
     `Hey ${name}! Need stock, requests, or work order updates?`,
     `Namaste ${name}! I can help with procurement and stock actions.`,
@@ -868,20 +806,21 @@ const handleOrderHistory = safeHandler(async ({ prisma }) => {
   const orders = await prisma.purchaseRequest.findMany({
     take: 10,
     orderBy: { requested_at: 'desc' },
-    include: { product: true, user: true },
+    include: { items: { include: { product: true } }, user: true },
   });
   if (!orders.length) {
     return { text: 'No order history found.', suggestions: ['Create purchase request', 'Help'] };
   }
   return {
-    text: `Recent order history (last 10):\n${orders.map((o) => `- ${o.pr_number || `PR-${o.request_id}`}: ${o.product?.name} x${formatNumber(o.quantity)} | ${statusEmoji(o.status)} ${o.status} | by ${o.user?.name || 'Unknown'} | ${formatDate(o.requested_at)}`).join('\n')}`,
+    text: `Recent order history (last 10):\n${orders.map((o) => `- ${o.pr_number || `PR-${o.request_id}`}: ${itemsLabel(o)} | ${statusLabel(o.status)} | by ${o.user?.name || 'Unknown'} | ${formatDate(o.requested_at)}`).join('\n')}`,
     suggestions: ['Show my requests', 'Daily summary', 'Show work orders'],
   };
 });
 
-const handleInventoryValue = safeHandler(async ({ prisma }) => {
+const handleInventoryValue = safeHandler(async ({ prisma, ...who }) => {
   const inventory = await prisma.inventory.findMany({
-    include: { product: true, warehouse: true },
+    where: stockScope(who),
+    include: { product: true },
   });
   if (!inventory.length) {
     return { text: 'No inventory data available to calculate value.', suggestions: ['Check all stock', 'Help'] };
@@ -892,12 +831,12 @@ const handleInventoryValue = safeHandler(async ({ prisma }) => {
     const price = Number(item.product?.unit_price || 0);
     const value = qty * price;
     totalValue += value;
-    return { name: item.product?.name || 'Unknown', warehouse: item.warehouse?.name || 'Warehouse', qty, price, value };
+    return { name: item.product?.name || 'Unknown', qty, price, value };
   }).sort((a, b) => b.value - a.value);
 
   const top5 = itemValues.slice(0, 5);
   return {
-    text: `💰 Total Inventory Value: ${formatCurrency(totalValue)}\n\nTop 5 most valuable items:\n${top5.map((i) => `- ${i.name} (${i.warehouse}): ${formatNumber(i.qty)} × ${formatCurrency(i.price)} = ${formatCurrency(i.value)}`).join('\n')}\n\nTotal items tracked: ${inventory.length}`,
+    text: `Total Inventory Value: ${formatCurrency(totalValue)}\n\nTop 5 most valuable items:\n${top5.map((i) => `- ${i.name}: ${formatNumber(i.qty)} × ${formatCurrency(i.price)} = ${formatCurrency(i.value)}`).join('\n')}\n\nTotal items tracked: ${inventory.length}`,
     suggestions: ['Show low stock', 'Check all stock', 'Daily summary'],
   };
 });
@@ -913,7 +852,7 @@ const handleCategories = safeHandler(async ({ prisma }) => {
     `- ${c.name}: ${c._count.products} product(s)${c.description ? ` — ${c.description}` : ''}`
   );
   return {
-    text: `📂 Product Categories (${categories.length}):\n${lines.join('\n')}`,
+    text: `Product Categories (${categories.length}):\n${lines.join('\n')}`,
     suggestions: ['Show all stock', 'Check low stock', 'Help'],
   };
 });
@@ -929,7 +868,7 @@ const handleSystemStatus = safeHandler(async ({ prisma }) => {
   const hrs = Math.floor(uptime / 3600);
   const mins = Math.floor((uptime % 3600) / 60);
   return {
-    text: `🖥️ System Status\n- Server uptime: ${hrs}h ${mins}m\n- Products: ${productCount}\n- Active users: ${userCount}\n- Purchase requests: ${prCount}\n- Work orders: ${woCount}\n- Status: ✅ All systems operational`,
+    text: `System Status\n- Server uptime: ${hrs}h ${mins}m\n- Products: ${productCount}\n- Active users: ${userCount}\n- Purchase requests: ${prCount}\n- Work orders: ${woCount}\n- Status: All systems operational`,
     suggestions: ['Daily summary', 'Show all stock', 'Help'],
   };
 });
@@ -937,7 +876,7 @@ const handleSystemStatus = safeHandler(async ({ prisma }) => {
 const handleThankYou = safeHandler(async ({ userName }) => {
   const name = userName || 'there';
   const responses = [
-    `You're welcome, ${name}! Happy to help. 😊`,
+    `You're welcome, ${name}!`,
     `Glad I could assist, ${name}! Need anything else?`,
     `Anytime, ${name}! I'm here whenever you need me.`,
     `My pleasure, ${name}! Let me know if there's anything else.`,

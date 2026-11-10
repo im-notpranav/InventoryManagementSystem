@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('../../utils/password'); // lazy-loads bcrypt
 const jwt = require('jsonwebtoken');
 const prisma = require('../../config/db');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../../config/env');
@@ -163,6 +163,79 @@ router.put('/change-password', requireAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── Vendor invite (RFQ sent to an unregistered email) ────────
+// The invite link gives instant access: set name + password, then quote.
+async function findInvite(token) {
+  if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
+  const vendor = await prisma.vendor.findUnique({ where: { invite_token: token } });
+  if (!vendor || vendor.user_id) return null;
+  if (vendor.invite_expires_at && vendor.invite_expires_at < new Date()) return null;
+  return vendor;
+}
+
+router.get('/vendor-invite/:token', authLimiter, async (req, res, next) => {
+  try {
+    const vendor = await findInvite(req.params.token);
+    if (!vendor) return fail(res, 'This invite link is invalid or has expired', 404);
+    const rfqs = await prisma.vendorRFQ.count({ where: { vendor_id: vendor.vendor_id } });
+    return ok(res, { email: vendor.email, vendor_name: vendor.vendor_name, open_rfqs: rfqs });
+  } catch (err) { next(err); }
+});
+
+router.post('/vendor-invite/:token', authLimiter, async (req, res, next) => {
+  try {
+    const vendor = await findInvite(req.params.token);
+    if (!vendor) return fail(res, 'This invite link is invalid or has expired', 404);
+
+    const { name, company_name, phone, password } = req.body;
+    if (!String(name || '').trim()) return fail(res, 'Contact name is required', 400);
+    if (!String(company_name || '').trim()) return fail(res, 'Company name is required', 400);
+    if (!password || String(password).length < 8) return fail(res, 'Password must be at least 8 characters', 400);
+    if (await prisma.user.findUnique({ where: { email: vendor.email } })) {
+      return fail(res, 'An account with this email already exists. Please log in.', 400);
+    }
+    const vendorRole = await prisma.role.findUnique({ where: { role_name: 'Vendor' } });
+    if (!vendorRole) return fail(res, 'Vendor role not configured', 500);
+
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          role_id: vendorRole.role_id,
+          name: String(name).trim(),
+          email: vendor.email,
+          password: await bcrypt.hash(String(password), 12),
+          phone: phone ? String(phone).trim() : null,
+        },
+      });
+      await tx.vendor.update({
+        where: { vendor_id: vendor.vendor_id },
+        data: {
+          user_id: created.user_id,
+          vendor_name: String(company_name).trim(),
+          company_name: String(company_name).trim(),
+          phone: phone ? String(phone).trim() : vendor.phone,
+          status: 'active',
+          invite_token: null,
+          invite_expires_at: null,
+        },
+      });
+      return created;
+    });
+
+    const profile = {
+      user_id: user.user_id,
+      name: user.name,
+      email: user.email,
+      role: 'Vendor',
+      role_id: user.role_id,
+      department: null,
+      vendor_id: vendor.vendor_id,
+    };
+    const token = jwt.sign(profile, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return ok(res, { token, user: profile }, 'Account ready');
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

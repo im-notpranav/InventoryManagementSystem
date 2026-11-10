@@ -4,7 +4,6 @@ async function check() {
   const counts = {
     products:    await prisma.product.count(),
     categories:  await prisma.category.count(),
-    warehouses:  await prisma.warehouse.count(),
     inventory:   await prisma.inventory.count(),
     users:       await prisma.user.count(),
     vendors:     await prisma.vendor.count(),

@@ -1,5 +1,5 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('../../utils/password'); // lazy-loads bcrypt
 const prisma = require('../../config/db');
 const { requireAuth, requireRole } = require('../../middleware/auth.middleware');
 const { ok, fail } = require('../../utils/response');
@@ -25,7 +25,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       where: { vendor_id: parseInt(req.params.id) },
       include: {
         user: { select: { email: true, is_active: true, name: true } },
-        quote_submissions: { include: { request: { include: { product: true } } } },
+        quote_submissions: { include: { request: { include: { items: { include: { product: true } } } } } },
         work_orders: true,
       }
     });
@@ -49,7 +49,7 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
     if (!vendorRole) return fail(res, 'Vendor role not found in system', 500);
 
     // Hash default password
-    const hashedPassword = await bcrypt.hash('vendor123', 12);
+    const hashedPassword = await bcrypt.hash('demo1234', 12);
 
     // Create User and Vendor in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -85,7 +85,7 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
         to: email,
         name: contact_person || vendor_name,
         role: 'Vendor',
-        password: 'vendor123',
+        password: 'demo1234',
       });
     } catch (mailErr) {
       console.error('[VENDORS] Welcome email failed:', mailErr.message);
@@ -93,7 +93,7 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res, next) => {
 
     return ok(res, {
       vendor: result.vendor,
-      message: `Vendor account created successfully.\nLogin email: ${email}\nDefault password: vendor123\nPlease share these credentials with the vendor.`
+      message: `Vendor account created successfully.\nLogin email: ${email}\nDefault password: demo1234\nPlease share these credentials with the vendor.`
     }, 'Vendor created');
 
   } catch (err) { next(err); }

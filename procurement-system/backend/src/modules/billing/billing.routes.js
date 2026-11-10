@@ -1,387 +1,116 @@
+// Billing (v3) — per delivery, after goods review.
+//   Accountant: reviewed → approve → record payment (date, mode, reference) → paid
+//   One screen shows quote, work order, invoice, gate check and accepted qty.
 const express = require('express');
-const router = express.Router();
 const prisma = require('../../config/db');
 const { requireAuth, requireRole } = require('../../middleware/auth.middleware');
-const upload = require('../../utils/fileUpload');
-const { sendBillReadyEmail } = require('../../utils/mailer');
+const { ok, fail } = require('../../utils/response');
+const { FRONTEND_URL, hodsFor, notify } = require('../../utils/orderCycle');
 
-// ── FULL NESTED INCLUDE (used in multiple endpoints) ──────────
-const FULL_INCLUDE = {
-  entry: {
-    include: {
-      wo: {
-        include: {
-          vendor: { select: { vendor_id: true, vendor_name: true, email: true } },
-          submission: {
-            include: {
-              request: {
-                include: {
-                  product: { select: { name: true, sku: true, unit: true } },
-                  items: { include: { product: true } },
-                },
-              },
-            },
-          },
-          request: {
-            include: {
-              product: { select: { name: true, sku: true } },
-              items: { include: { product: true } },
-            },
-          },
-        },
-      },
-      watchman: { select: { name: true, email: true } },
+const router = express.Router();
+
+const BILLING_STATES = ['reviewed', 'bill_approved', 'paid'];
+const PAYMENT_MODES = ['NEFT', 'RTGS', 'IMPS', 'UPI', 'Cheque', 'Cash', 'Other'];
+
+const INCLUDE = {
+  wo: {
+    select: {
+      wo_id: true, wo_number: true, agreed_price: true, terms: true,
+      vendor: { select: { vendor_id: true, vendor_name: true, email: true, user_id: true } },
+      submission: { select: { quotation_file_url: true, total_price: true } },
+      request: { select: { pr_number: true, letter_url: true, user: { select: { name: true, department: true } } } },
     },
   },
-  uploader: { select: { name: true, email: true } },
-  watchman_user: { select: { name: true } },
-  admin_user: { select: { name: true } },
-  accountant_user: { select: { name: true } },
+  items: { include: { request_item: { include: { product: { select: { name: true, unit: true } } } } } },
+  gate_checks: { include: { checker: { select: { name: true } } }, orderBy: { checked_at: 'desc' } },
+  reviewer: { select: { name: true } },
+  approver: { select: { name: true } },
+  payer: { select: { name: true } },
 };
 
-// ── GET /api/billing ─────────────────────────────────────────
-// Returns billing docs filtered by role
-router.get('/', requireAuth, async (req, res) => {
-  try {
-    let where = {};
+const parseId = (v) => {
+  const n = parseInt(v, 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 
-    if (req.user.role === 'Accountant') {
-      // Accountant sees: ready_for_accountant AND released
-      where = { status: { in: ['ready_for_accountant', 'released'] } };
-    } else if (req.user.role === 'Watchman') {
-      // Security sees: docs needing their confirmation
-      where = {
-        scanned_invoice_url: { not: null },
-        watchman_confirmed: false,
-      };
+// ── GET / — bills (Accountant: all, HOD: own department, read only) ──
+router.get('/', requireAuth, requireRole('Accountant', 'Admin'), async (req, res, next) => {
+  try {
+    const wanted = req.query.status ? String(req.query.status).split(',').filter((s) => BILLING_STATES.includes(s)) : BILLING_STATES;
+    const where = { status: { in: wanted } };
+    if (req.user.role === 'Admin' && req.user.department) {
+      where.wo = { request: { user: { department: { equals: req.user.department, mode: 'insensitive' } } } };
     }
-    // Admin sees all
-
-    const docs = await prisma.billingDocument.findMany({
-      where,
-      include: FULL_INCLUDE,
-      orderBy: { created_at: 'desc' },
-    });
-
-    return res.json({ success: true, data: docs });
-  } catch (err) {
-    console.error('[BILLING GET ALL]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+    const data = await prisma.shipment.findMany({ where, include: INCLUDE, orderBy: { reviewed_at: 'asc' } });
+    return ok(res, data.map((s) => ({ ...s, gate_code: undefined })));
+  } catch (err) { next(err); }
 });
 
-// ── GET /api/billing/pending ─────────────────────────────────
-// Accountant: bills ready for review
-router.get('/pending', requireAuth, requireRole('Accountant', 'Admin'), async (req, res) => {
+// ── POST /:id/approve ────────────────────────────────────────
+router.post('/:id/approve', requireAuth, requireRole('Accountant'), async (req, res, next) => {
   try {
-    const docs = await prisma.billingDocument.findMany({
-      where: { status: 'ready_for_accountant' },
-      include: FULL_INCLUDE,
-      orderBy: { created_at: 'asc' },
-    });
-    return res.json({ success: true, data: docs });
-  } catch (err) {
-    console.error('[BILLING PENDING]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+    const id = parseId(req.params.id);
+    const sh = id && await prisma.shipment.findUnique({ where: { shipment_id: id } });
+    if (!sh) return fail(res, 'Bill not found', 404);
+    if (sh.status !== 'reviewed') return fail(res, `Bill is ${sh.status}; only reviewed deliveries can be approved`, 400);
+    if (!sh.invoice_url) return fail(res, 'Vendor invoice is missing', 400);
 
-// ── GET /api/billing/released ────────────────────────────────
-// Released bills
-router.get('/released', requireAuth, async (req, res) => {
-  try {
-    const docs = await prisma.billingDocument.findMany({
-      where: { bill_released: true },
-      include: FULL_INCLUDE,
-      orderBy: { bill_released_at: 'desc' },
-    });
-    return res.json({ success: true, data: docs });
-  } catch (err) {
-    console.error('[BILLING RELEASED]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ── GET /api/billing/watchman-queue ─────────────────────────
-// Security: docs waiting for their confirmation
-router.get('/watchman-queue', requireAuth, requireRole('Watchman', 'Admin'), async (req, res) => {
-  try {
-    const docs = await prisma.billingDocument.findMany({
-      where: {
-        scanned_invoice_url: { not: null },
-        watchman_confirmed: false,
-      },
-      include: FULL_INCLUDE,
-      orderBy: { uploaded_at: 'asc' },
-    });
-    return res.json({ success: true, data: docs });
-  } catch (err) {
-    console.error('[BILLING WATCHMAN QUEUE]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ── GET /api/billing/:doc_id ─────────────────────────────────
-router.get('/:doc_id', requireAuth, async (req, res) => {
-  try {
-    const doc = await prisma.billingDocument.findUnique({
-      where: { doc_id: parseInt(req.params.doc_id) },
-      include: FULL_INCLUDE,
-    });
-    if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
-    return res.json({ success: true, data: doc });
-  } catch (err) {
-    console.error('[BILLING GET ONE]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ── POST /api/billing/:entry_id/upload-invoice ───────────────
-router.post(
-  '/:entry_id/upload-invoice',
-  requireAuth, requireRole('Admin'),
-  upload.single('scanned_invoice'),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: 'Scanned invoice file is required' });
-      }
-      const entryId = parseInt(req.params.entry_id);
-
-      // Find or create billing document
-      let doc = await prisma.billingDocument.findUnique({
-        where: { entry_id: entryId },
-      });
-
-      if (!doc) {
-        // Auto-create if gate entry exists
-        const entry = await prisma.gateEntry.findUnique({ where: { entry_id: entryId } });
-        if (!entry) return res.status(404).json({ success: false, message: 'Gate entry not found' });
-        doc = await prisma.billingDocument.create({
-          data: { entry_id: entryId, status: 'pending' },
-        });
-      }
-
-      const fileUrl = `/uploads/${req.file.filename}`;
-
-      const updated = await prisma.billingDocument.update({
-        where: { doc_id: doc.doc_id },
-        data: {
-          scanned_invoice_url: fileUrl,
-          uploaded_by: req.user.user_id,
-          uploaded_at: new Date(),
-          status: 'uploaded',
-        },
-        include: FULL_INCLUDE,
-      });
-
-      return res.json({ success: true, message: 'Invoice uploaded', data: updated });
-    } catch (err) {
-      console.error('[BILLING UPLOAD]', err.message, err.stack);
-      return res.status(500).json({ success: false, message: err.message });
-    }
-  }
-);
-
-// ── POST /api/billing/:doc_id/admin-sign ─────────────────────
-router.post('/:doc_id/admin-sign', requireAuth, requireRole('Admin'), async (req, res) => {
-  try {
-    const doc = await prisma.billingDocument.findUnique({
-      where: { doc_id: parseInt(req.params.doc_id) },
-    });
-    if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-    if (!doc.scanned_invoice_url) {
-      return res.status(400).json({ success: false, message: 'Upload the scanned invoice before signing' });
-    }
-
-    // Determine new status
-    const bothSigned = doc.watchman_confirmed === true;
-    const newStatus = bothSigned ? 'ready_for_accountant' : 'admin_signed';
-
-    const updated = await prisma.billingDocument.update({
-      where: { doc_id: doc.doc_id },
+    const updated = await prisma.shipment.update({
+      where: { shipment_id: id },
       data: {
-        admin_signed: true,
-        admin_signed_by: req.user.user_id,
-        admin_signed_at: new Date(),
-        status: newStatus,
+        status: 'bill_approved',
+        bill_approved_by: req.user.user_id,
+        bill_approved_at: new Date(),
+        accountant_remarks: String(req.body.remarks || '').trim() || null,
       },
-      include: FULL_INCLUDE,
+      include: INCLUDE,
     });
-
-    // Update PR status
-    try {
-      const entry = await prisma.gateEntry.findUnique({
-        where: { entry_id: doc.entry_id },
-        include: { wo: true },
-      });
-      if (entry?.wo?.request_id) {
-        await prisma.purchaseRequest.update({
-          where: { request_id: entry.wo.request_id },
-          data: { status: 'documents_uploaded' },
-        });
-      }
-    } catch (e) {
-      console.warn('[BILLING] PR status update failed:', e.message);
-    }
-
-    // Notify accountant if both signed
-    if (bothSigned) {
-      try {
-        const accountants = await prisma.user.findMany({
-          where: { role: { role_name: 'Accountant' }, is_active: true },
-        });
-        for (const acc of accountants) {
-          await sendBillReadyEmail({
-            to: acc.email,
-            accountantName: acc.name,
-            entryNumber: updated.entry?.entry_number || 'N/A',
-            vendorName: updated.entry?.wo?.vendor?.vendor_name || 'Unknown',
-          });
-        }
-      } catch (e) {
-        console.warn('[BILLING] Accountant notification failed:', e.message);
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: bothSigned ? 'Document ready for accountant review' : 'Admin sign-off recorded',
-      data: updated,
-    });
-  } catch (err) {
-    console.error('[BILLING ADMIN SIGN]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+    return ok(res, updated, 'Bill approved');
+  } catch (err) { next(err); }
 });
 
-// ── POST /api/billing/:doc_id/watchman-confirm ───────────────
-router.post('/:doc_id/watchman-confirm', requireAuth, requireRole('Watchman', 'Admin'), async (req, res) => {
+// ── POST /:id/pay — record payment ──────────────────────────
+// body: { payment_date, payment_mode, payment_ref }
+router.post('/:id/pay', requireAuth, requireRole('Accountant'), async (req, res, next) => {
   try {
-    const doc = await prisma.billingDocument.findUnique({
-      where: { doc_id: parseInt(req.params.doc_id) },
+    const id = parseId(req.params.id);
+    const sh = id && await prisma.shipment.findUnique({ where: { shipment_id: id }, include: INCLUDE });
+    if (!sh) return fail(res, 'Bill not found', 404);
+    if (sh.status !== 'bill_approved') return fail(res, 'Approve the bill before recording payment', 400);
+
+    const date = new Date(req.body.payment_date);
+    if (Number.isNaN(date.getTime())) return fail(res, 'Payment date is required', 400);
+    if (date > new Date()) return fail(res, 'Payment date cannot be in the future', 400);
+    const mode = String(req.body.payment_mode || '');
+    if (!PAYMENT_MODES.includes(mode)) return fail(res, `Payment mode must be one of: ${PAYMENT_MODES.join(', ')}`, 400);
+    const ref = String(req.body.payment_ref || '').trim();
+    if (mode !== 'Cash' && !ref) return fail(res, 'Transaction / cheque reference is required', 400);
+
+    const updated = await prisma.shipment.update({
+      where: { shipment_id: id },
+      data: { status: 'paid', paid_by: req.user.user_id, payment_date: date, payment_mode: mode, payment_ref: ref || null },
+      include: INCLUDE,
     });
-    if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
 
-    const bothSigned = doc.admin_signed === true;
-    const newStatus = bothSigned ? 'ready_for_accountant' : 'watchman_confirmed';
-
-    const updated = await prisma.billingDocument.update({
-      where: { doc_id: doc.doc_id },
-      data: {
-        watchman_confirmed: true,
-        watchman_confirmed_by: req.user.user_id,
-        watchman_confirmed_at: new Date(),
-        status: newStatus,
+    const amount = `₹${Number(sh.billable_amount || 0).toLocaleString('en-IN')}`;
+    const v = sh.wo.vendor;
+    notify([{ user_id: v.user_id || undefined, email: v.email }], {
+      type: 'bill_paid',
+      message: `Payment ${amount} released for ${sh.shipment_number}`,
+      email: {
+        subject: `Payment released: ${sh.invoice_number}`,
+        heading: 'Payment released',
+        rows: [['Invoice', sh.invoice_number], ['Delivery', sh.shipment_number], ['Amount', amount], ['Mode', mode], ['Reference', ref], ['Date', date.toDateString()]],
+        cta: { label: 'Open vendor portal', url: `${FRONTEND_URL()}/vendor-portal` },
       },
-      include: FULL_INCLUDE,
+    });
+    notify(await hodsFor(sh.wo.request.user?.department), {
+      type: 'bill_paid',
+      message: `${sh.shipment_number} paid (${amount})`,
     });
 
-    // Update PR status to ready_for_accountant via WO
-    if (bothSigned) {
-      try {
-        const entry = await prisma.gateEntry.findUnique({
-          where: { entry_id: doc.entry_id },
-          include: { wo: true },
-        });
-        if (entry?.wo?.request_id) {
-          await prisma.purchaseRequest.update({
-            where: { request_id: entry.wo.request_id },
-            data: { status: 'ready_for_accountant' },
-          });
-        }
-      } catch (e) {
-        console.warn('[BILLING] PR status update failed:', e.message);
-      }
-
-      try {
-        const accountants = await prisma.user.findMany({
-          where: { role: { role_name: 'Accountant' }, is_active: true },
-        });
-        for (const acc of accountants) {
-          await sendBillReadyEmail({
-            to: acc.email,
-            accountantName: acc.name,
-            entryNumber: updated.entry?.entry_number || 'N/A',
-            vendorName: updated.entry?.wo?.vendor?.vendor_name || 'Unknown',
-          });
-        }
-      } catch (e) {
-        console.warn('[BILLING] Notification failed:', e.message);
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: bothSigned ? 'Document ready for accountant' : 'Security confirmation recorded',
-      data: updated,
-    });
-  } catch (err) {
-    console.error('[BILLING WATCHMAN CONFIRM]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ── POST /api/billing/:doc_id/accountant-verify ──────────────
-router.post('/:doc_id/accountant-verify', requireAuth, requireRole('Accountant'), async (req, res) => {
-  try {
-    const { accountant_remarks } = req.body;
-    const doc = await prisma.billingDocument.findUnique({
-      where: { doc_id: parseInt(req.params.doc_id) },
-      include: FULL_INCLUDE,
-    });
-    if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-
-    // Validate ALL 6 conditions
-    const checks = [
-      [!doc.entry?.wo?.submission?.proforma_file_url, 'Proforma Invoice not uploaded by vendor'],
-      [!doc.entry?.wo?.tax_invoice_url, 'Tax Invoice not uploaded by vendor'],
-      [!doc.scanned_invoice_url, 'Scanned physical invoice not uploaded'],
-      [!doc.admin_signed, 'Admin has not signed off yet'],
-      [!doc.watchman_confirmed, 'Security officer has not confirmed yet'],
-      [doc.status !== 'ready_for_accountant', `Document status is '${doc.status}' — must be 'ready_for_accountant'`],
-    ];
-
-    for (const [failed, message] of checks) {
-      if (failed) return res.status(400).json({ success: false, message });
-    }
-
-    const updated = await prisma.billingDocument.update({
-      where: { doc_id: doc.doc_id },
-      data: {
-        accountant_verified: true,
-        accountant_verified_by: req.user.user_id,
-        accountant_verified_at: new Date(),
-        accountant_remarks: accountant_remarks || null,
-        bill_released: true,
-        bill_released_at: new Date(),
-        status: 'released',
-      },
-      include: FULL_INCLUDE,
-    });
-
-    // Update PR to final status
-    try {
-      const requestId = doc.entry?.wo?.request_id || doc.entry?.wo?.submission?.request_id;
-      if (requestId) {
-        await prisma.purchaseRequest.update({
-          where: { request_id: requestId },
-          data: { status: 'bill_released' },
-        });
-      }
-    } catch (e) {
-      console.warn('[BILLING] PR final update failed:', e.message);
-    }
-
-    return res.json({
-      success: true,
-      message: 'Bill released for payment successfully',
-      data: updated,
-    });
-  } catch (err) {
-    console.error('[BILLING ACCOUNTANT VERIFY]', err.message, err.stack);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+    return ok(res, updated, 'Payment recorded');
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

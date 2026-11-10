@@ -1,222 +1,147 @@
+// Gate verification (v3)
+//   Driver shows the gate pass (QR or 6-digit code).
+//   Watchman: GET /lookup/:code → sees expected vehicle, packages, items
+//             POST /:id/check   → match (goods go to review) | mismatch (HOD decides retry)
 const express = require('express');
 const prisma = require('../../config/db');
 const { requireAuth, requireRole } = require('../../middleware/auth.middleware');
+const upload = require('../../utils/fileUpload');
 const { ok, fail } = require('../../utils/response');
-const { generateGENumber } = require('../../utils/generateNumbers');
-const { sendGateBlockedAlert } = require('../../utils/mailer');
+const { FRONTEND_URL, hodsFor, notify } = require('../../utils/orderCycle');
 
 const router = express.Router();
+const GATE_ROLES = ['Watchman', 'Admin'];
 
-// POST — Record gate entry (Watchman)
-router.post('/record', requireAuth, requireRole('Watchman', 'Admin'), async (req, res, next) => {
+const INCLUDE = {
+  wo: {
+    select: {
+      wo_number: true,
+      vendor: { select: { vendor_name: true } },
+      request: { select: { pr_number: true, requested_by: true, user: { select: { user_id: true, name: true, email: true, department: true } } } },
+    },
+  },
+  items: { include: { request_item: { include: { product: { select: { name: true, unit: true } } } } } },
+  gate_checks: { include: { checker: { select: { name: true } } }, orderBy: { checked_at: 'desc' } },
+};
+
+// What the watchman needs — nothing more.
+const gateView = (sh) => ({
+  shipment_id: sh.shipment_id,
+  shipment_number: sh.shipment_number,
+  status: sh.status,
+  wo_number: sh.wo.wo_number,
+  vendor_name: sh.wo.vendor.vendor_name,
+  department: sh.wo.request.user?.department || null,
+  vehicle_number: sh.vehicle_number,
+  num_packages: sh.num_packages,
+  expected_arrival: sh.expected_arrival,
+  invoice_number: sh.invoice_number,
+  items: sh.items.map((i) => ({ name: i.request_item.product.name, unit: i.request_item.product.unit, qty: i.qty_shipped })),
+  last_check: sh.gate_checks[0]
+    ? { result: sh.gate_checks[0].result, reason: sh.gate_checks[0].reason, at: sh.gate_checks[0].checked_at, by: sh.gate_checks[0].checker?.name }
+    : null,
+});
+
+// ── GET /lookup/:code ────────────────────────────────────────
+router.get('/lookup/:code', requireAuth, requireRole(...GATE_ROLES), async (req, res, next) => {
   try {
-    const { wo_number, vehicle_number, driver_name, num_packages, tax_invoice_number } = req.body;
-    if (!wo_number || !vehicle_number || !driver_name || !num_packages || !tax_invoice_number) {
-      return fail(res, 'All fields are required: WO number, vehicle, driver, packages, invoice number');
-    }
-
-    // Look up WO by number
-    const wo = await prisma.workOrder.findUnique({
-      where: { wo_number },
-      include: { vendor: true, request: { include: { product: true } } }
+    const code = String(req.params.code || '').replace(/\D/g, '');
+    if (code.length !== 6) return fail(res, 'Enter the 6-digit gate code', 400);
+    const matches = await prisma.shipment.findMany({
+      where: { gate_code: code, status: { in: ['dispatched', 'gate_blocked'] } },
+      include: INCLUDE,
     });
-    if (!wo) return fail(res, 'Work order not found', 404);
-    if (wo.status !== 'dispatched') return fail(res, 'Work order has not been dispatched yet');
+    if (!matches.length) return fail(res, 'No delivery is expected with this code', 404);
+    if (matches.length > 1) return fail(res, 'Code is ambiguous — ask the HOD to check', 409);
+    return ok(res, gateView(matches[0]));
+  } catch (err) { next(err); }
+});
 
-    // Check if gate entry already exists for this WO
-    const existingEntry = await prisma.gateEntry.findUnique({ where: { wo_id: wo.wo_id } });
-    if (existingEntry) return fail(res, 'Gate entry already recorded for this work order');
+// ── POST /:id/check — match | mismatch ──────────────────────
+// multipart: result, reason (required on mismatch), photo (optional)
+router.post('/:id/check', requireAuth, requireRole(...GATE_ROLES), upload.single('photo'), async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const sh = Number.isInteger(id) && await prisma.shipment.findUnique({ where: { shipment_id: id }, include: INCLUDE });
+    if (!sh) return fail(res, 'Delivery not found', 404);
+    if (sh.status === 'gate_blocked') return fail(res, 'This delivery is blocked. The HOD must allow a retry first.', 400);
+    if (sh.status !== 'dispatched') return fail(res, `This delivery is ${sh.status}; it is not waiting at the gate`, 400);
 
-    // Cross-check tax invoice numbers
-    const invoiceMatch = wo.tax_invoice_number?.trim() === tax_invoice_number.trim();
+    const result = req.body.result;
+    if (!['match', 'mismatch'].includes(result)) return fail(res, 'Result must be match or mismatch', 400);
+    const reason = String(req.body.reason || '').trim() || null;
+    if (result === 'mismatch' && !reason) return fail(res, 'Say what did not match', 400);
 
-    const entryNum = await generateGENumber();
-
-    if (invoiceMatch) {
-      // VERIFIED — create entry + billing document
-      const result = await prisma.$transaction(async (tx) => {
-        const entry = await tx.gateEntry.create({
-          data: {
-            entry_number: entryNum,
-            wo_id: wo.wo_id,
-            recorded_by: req.user.user_id,
-            vehicle_number: vehicle_number.toUpperCase(),
-            driver_name,
-            num_packages: parseInt(num_packages),
-            tax_invoice_number,
-            invoice_verified: true,
-            status: 'verified',
-            gate_pass_issued: true,
-          }
-        });
-
-        // Auto-create billing document
-        const billingDoc = await tx.billingDocument.create({
-          data: {
-            entry_id: entry.entry_id,
-            status: 'pending',
-          }
-        });
-
-        // Update PR status to 'at_gate'
-        if (wo.request_id) {
-          await tx.purchaseRequest.update({
-            where: { request_id: wo.request_id },
-            data: { status: 'at_gate' },
-          }).catch(e => console.warn('[GATE] PR status update failed:', e.message));
-        }
-
-        return { entry, billingDoc };
-      });
-
-      return ok(res, {
-        verified: true,
-        entry: result.entry,
-        billing_doc: result.billingDoc,
-        vendor_name: wo.vendor?.vendor_name,
-        items: wo.items_description,
-        message: '✅ ENTRY VERIFIED — Gate pass issued'
-      }, 'Gate entry recorded and verified');
-
-    } else {
-      // BLOCKED — invoice mismatch
-      const entry = await prisma.gateEntry.create({
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.gateCheck.create({
         data: {
-          entry_number: entryNum,
-          wo_id: wo.wo_id,
-          recorded_by: req.user.user_id,
-          vehicle_number: vehicle_number.toUpperCase(),
-          driver_name,
-          num_packages: parseInt(num_packages),
-          tax_invoice_number,
-          invoice_verified: false,
-          status: 'blocked',
-          block_reason: `Invoice mismatch: expected "${wo.tax_invoice_number}", received "${tax_invoice_number}"`,
-          gate_pass_issued: false,
-        }
-      });
-
-      // Update PR status to 'at_gate' even if blocked
-      if (wo.request_id) {
-        await prisma.purchaseRequest.update({
-          where: { request_id: wo.request_id },
-          data: { status: 'at_gate' },
-        }).catch(e => console.warn('[GATE] PR status update failed:', e.message));
-      }
-
-      // Send gate blocked alert to admin (fire-and-forget)
-      try {
-        const adminUser = await prisma.user.findFirst({
-          where: { role: { role_name: 'Admin' }, is_active: true }
-        });
-        if (adminUser?.email) {
-          await sendGateBlockedAlert({
-            to: adminUser.email,
-            entryNumber: entryNum,
-            woNumber: wo.wo_number,
-            vendorName: wo.vendor?.vendor_name || 'Unknown',
-            expectedInvoice: wo.tax_invoice_number,
-            enteredInvoice: tax_invoice_number,
-          });
-        }
-      } catch (mailErr) {
-        console.error('[GATE] Block alert email failed:', mailErr.message);
-      }
-
-      return ok(res, {
-        verified: false,
-        entry,
-        expected_invoice: wo.tax_invoice_number,
-        entered_invoice: tax_invoice_number,
-        message: '❌ ENTRY BLOCKED — Invoice number mismatch'
-      }, 'Gate entry blocked — invoice mismatch');
-    }
-  } catch (err) { next(err); }
-});
-
-// GET — Search work order by number (for watchman to look up)
-router.get('/lookup-wo/:wo_number', requireAuth, async (req, res, next) => {
-  try {
-    const wo_number = req.params.wo_number?.trim();
-    if (!wo_number || !/^WO-\d{4}-[A-Z]+-\d{4}$/i.test(wo_number)) {
-      return fail(res, 'Invalid work order number format. Expected format: WO-YYYY-DEPT-NNNN', 400);
-    }
-
-    const wo = await prisma.workOrder.findUnique({
-      where: { wo_number },
-      include: {
-        vendor: true,
-        request: { include: { product: true } }
-      }
-    });
-    if (!wo) return fail(res, 'Work order not found', 404);
-    return ok(res, {
-      wo_id: wo.wo_id,
-      wo_number: wo.wo_number,
-      vendor_name: wo.vendor?.vendor_name,
-      items: wo.items_description,
-      quantity: wo.quantity,
-      expected_delivery: wo.expected_delivery,
-      tax_invoice_number: wo.tax_invoice_number,
-      status: wo.status,
-      product_name: wo.request?.product?.name,
-    });
-  } catch (err) { next(err); }
-});
-
-// GET — All gate entries
-router.get('/', requireAuth, async (req, res, next) => {
-  try {
-    const { filter } = req.query;
-    const where = {};
-
-    if (filter === 'today') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      where.entry_time = { gte: today };
-    } else if (filter === 'week') {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      where.entry_time = { gte: weekAgo };
-    }
-
-    const entries = await prisma.gateEntry.findMany({
-      where,
-      include: {
-        wo: { include: { vendor: true, request: { include: { product: true } } } },
-        watchman: { select: { name: true } }
-      },
-      orderBy: { entry_time: 'desc' }
-    });
-    return ok(res, entries);
-  } catch (err) { next(err); }
-});
-
-// GET — Billing docs awaiting watchman confirmation
-router.get('/pending-confirmations', requireAuth, requireRole('Watchman'), async (req, res, next) => {
-  try {
-    const docs = await prisma.billingDocument.findMany({
-      where: {
-        scanned_invoice_url: { not: null },
-        watchman_confirmed: false,
-      },
-      include: {
-        entry: {
-          include: {
-            wo: {
-              include: {
-                vendor: true,
-                submission: true,
-                request: { include: { product: true } }
-              }
-            }
-          }
+          shipment_id: id, checked_by: req.user.user_id, result, reason,
+          photo_url: req.file ? `/uploads/${req.file.filename}` : null,
         },
-        uploader: { select: { name: true } },
-      },
-      orderBy: { created_at: 'desc' }
+      }),
+      prisma.shipment.update({
+        where: { shipment_id: id },
+        data: result === 'match' ? { status: 'received', received_at: now } : { status: 'gate_blocked' },
+      }),
+    ]);
+
+    const pr = sh.wo.request;
+    const hods = await hodsFor(pr.user?.department);
+    if (result === 'match') {
+      notify([pr.user, ...hods], {
+        type: 'goods_arrived',
+        message: `${sh.shipment_number} arrived at the gate — please review the goods`,
+        email: {
+          subject: `Goods arrived: ${sh.shipment_number}`,
+          heading: 'Goods passed the gate — review needed',
+          intro: 'Check the items and record the accepted quantity.',
+          rows: [['Delivery', sh.shipment_number], ['Request', pr.pr_number], ['Vendor', sh.wo.vendor.vendor_name]],
+          cta: { label: 'Review goods', url: `${FRONTEND_URL()}/goods-review` },
+        },
+      });
+    } else {
+      notify(hods, {
+        type: 'gate_blocked',
+        message: `${sh.shipment_number} blocked at gate: ${reason}`,
+        email: {
+          subject: `Gate blocked: ${sh.shipment_number}`,
+          heading: 'Delivery blocked at the gate',
+          rows: [['Delivery', sh.shipment_number], ['Vendor', sh.wo.vendor.vendor_name], ['Vehicle', sh.vehicle_number], ['Reason', reason], ['Checked by', req.user.name]],
+          cta: { label: 'Decide', url: `${FRONTEND_URL()}/work-orders` },
+        },
+      });
+    }
+
+    return ok(res, { ...gateView(sh), status: result === 'match' ? 'received' : 'gate_blocked' },
+      result === 'match' ? 'Entry allowed — goods sent for review' : 'Entry blocked — HOD notified');
+  } catch (err) { next(err); }
+});
+
+// ── GET /expected — deliveries on the way (no codes) ────────
+router.get('/expected', requireAuth, requireRole(...GATE_ROLES), async (req, res, next) => {
+  try {
+    const rows = await prisma.shipment.findMany({
+      where: { status: { in: ['dispatched', 'gate_blocked'] } },
+      include: INCLUDE,
+      orderBy: { expected_arrival: 'asc' },
     });
-    return ok(res, docs);
+    return ok(res, rows.map(gateView));
+  } catch (err) { next(err); }
+});
+
+// ── GET /history — recent gate checks ────────────────────────
+router.get('/history', requireAuth, requireRole(...GATE_ROLES), async (req, res, next) => {
+  try {
+    const rows = await prisma.gateCheck.findMany({
+      take: 100,
+      orderBy: { checked_at: 'desc' },
+      include: {
+        checker: { select: { name: true } },
+        shipment: { select: { shipment_number: true, vehicle_number: true, wo: { select: { vendor: { select: { vendor_name: true } } } } } },
+      },
+    });
+    return ok(res, rows);
   } catch (err) { next(err); }
 });
 

@@ -59,6 +59,12 @@ npm install
 npm run dev
 ```
 
+After the first install you can start both apps with one command from `procurement-system/`:
+
+```bash
+npm run dev   # API (nodemon) + web (Vite), prefixed logs, Ctrl+C stops both
+```
+
 The API listens on `http://localhost:5000` by default; the Vite app on `http://localhost:5173`. Set `FRONTEND_URL` in backend `.env` to match your dev URL for CORS.
 
 ### Database migrations
@@ -105,13 +111,21 @@ See `.env.example` for inline comments and optional seed password overrides.
 
 ### Demo accounts (after `npm run seed`)
 
-| Role            | Email                    | Password   |
-|-----------------|--------------------------|------------|
-| Admin           | admin@college.edu        | admin123   |
-| Department User | itdept@college.edu       | dept123    |
-| Watchman        | watchman@college.edu     | watch123   |
-| Accountant      | accountant@college.edu   | acc123     |
-| Vendor          | vendor1@test.com         | vendor123  |
+Every demo account uses the password `demo1234`. The default department is CSM(AIML).
+
+| Role                          | Email                    |
+|-------------------------------|--------------------------|
+| Super admin (all departments) | admin@mlrit.ac.in        |
+| HOD · CSM(AIML)               | hod.csm@mlrit.ac.in      |
+| Faculty · CSM(AIML)           | faculty.csm@mlrit.ac.in  |
+| HOD · CSE                     | hod.cse@mlrit.ac.in      |
+| Faculty · CSE                 | faculty.cse@mlrit.ac.in  |
+| Watchman                      | watchman@mlrit.ac.in     |
+| Accountant                    | accounts@mlrit.ac.in     |
+| Vendor                        | vendor1@techsupply.com   |
+
+An HOD sees and manages only their own department's faculty and stock.
+The super admin sees every department.
 
 ## Architecture
 

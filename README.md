@@ -73,10 +73,15 @@ TWILIO_PHONE=""
 ```
 
 ### Demo Accounts
-| Role   | Email                 | Password  |
-|--------|-----------------------|-----------|
-| Admin  | admin@inventbot.com   | admin123  |
-| User   | user@inventbot.com    | user123   |
+Every demo account uses the password `demo1234`.
+
+| Role                | Email                    |
+|---------------------|--------------------------|
+| Super admin         | admin@mlrit.ac.in        |
+| HOD · CSM(AIML)     | hod.csm@mlrit.ac.in      |
+| Faculty · CSM(AIML) | faculty.csm@mlrit.ac.in  |
+
+See `procurement-system/README.md` for the full list.
 
 ## Architecture
 

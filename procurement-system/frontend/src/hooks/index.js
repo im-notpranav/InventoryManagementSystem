@@ -113,3 +113,39 @@ export function useHotkey(key, handler, { meta = true } = {}) {
     return () => window.removeEventListener('keydown', onKey);
   }, [key, handler, meta]);
 }
+
+/**
+ * Run `fn` now and every `ms` while the tab is visible. Polling stops in a
+ * background tab and catches up as soon as the tab is shown again.
+ * Pass `enabled = false` to skip polling entirely.
+ */
+export function usePolling(fn, ms, enabled = true) {
+  const saved = useRef(fn);
+  saved.current = fn;
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let id = null;
+    const tick = () => saved.current();
+    const start = () => {
+      if (id == null) id = setInterval(tick, ms);
+    };
+    const stop = () => {
+      clearInterval(id);
+      id = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+      else {
+        tick();
+        start();
+      }
+    };
+    tick();
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [ms, enabled]);
+}

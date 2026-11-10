@@ -1,30 +1,23 @@
 import { motion } from 'motion/react';
 import { ArrowUpRight, Inbox, RefreshCw, AlertTriangle } from 'lucide-react';
-import BlurText from '../reactbits/BlurText/BlurText';
 import CountUp from '../reactbits/CountUp/CountUp';
-import SpotlightCard from '../reactbits/SpotlightCard/SpotlightCard';
 import Button from './Button';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks';
 
-/** Page title block with animated heading, subtitle and action slot. */
-export function PageHeader({ title, subtitle, eyebrow, icon: Icon, actions, className = '', animate = true }) {
-  const reduced = useReducedMotion();
+/** Page title block with subtitle and action slot. */
+export function PageHeader({ title, subtitle, eyebrow, icon: Icon, actions, className = '' }) {
   return (
     <div className={cn('flex flex-col sm:flex-row sm:flex-wrap sm:items-end sm:justify-between gap-4', className)}>
       <div className="min-w-0 flex-1">
-        {eyebrow && <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600 mb-1">{eyebrow}</p>}
+        {eyebrow && <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">{eyebrow}</p>}
         <div className="flex items-center gap-3 min-w-0">
           {Icon && (
-            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-card grid place-items-center text-brand-700 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-brand-50 grid place-items-center text-brand-600 shrink-0">
               <Icon className="w-5 h-5" />
             </div>
           )}
-          {animate && !reduced ? (
-            <BlurText text={title} delay={40} animateBy="words" direction="top" stepDuration={0.28} className="min-w-0 font-display text-xl sm:text-2xl lg:text-[28px] font-bold text-slate-900 leading-tight" />
-          ) : (
-            <h1 className="min-w-0 font-display text-xl sm:text-2xl lg:text-[28px] font-bold text-slate-900 leading-tight">{title}</h1>
-          )}
+          <h1 className="min-w-0 text-xl sm:text-2xl lg:text-[28px] font-bold text-slate-900 leading-tight">{title}</h1>
         </div>
         {subtitle && <p className="text-sm text-slate-500 mt-1.5 max-w-2xl">{subtitle}</p>}
       </div>
@@ -55,17 +48,17 @@ export function Card({ title, description, icon: Icon, actions, children, classN
 }
 
 const toneMap = {
-  brand: { icon: 'bg-brand-50 text-brand-700', spot: 'rgba(46,117,182,0.16)', accent: 'text-brand-700' },
-  amber: { icon: 'bg-amber-50 text-amber-600', spot: 'rgba(245,158,11,0.16)', accent: 'text-amber-600' },
-  red: { icon: 'bg-red-50 text-red-600', spot: 'rgba(239,68,68,0.14)', accent: 'text-red-600' },
-  emerald: { icon: 'bg-emerald-50 text-emerald-600', spot: 'rgba(16,185,129,0.16)', accent: 'text-emerald-600' },
-  violet: { icon: 'bg-violet-50 text-violet-600', spot: 'rgba(139,92,246,0.16)', accent: 'text-violet-600' },
-  blue: { icon: 'bg-blue-50 text-blue-600', spot: 'rgba(59,130,246,0.16)', accent: 'text-blue-600' },
-  slate: { icon: 'bg-slate-100 text-slate-600', spot: 'rgba(100,116,139,0.14)', accent: 'text-slate-700' },
-  teal: { icon: 'bg-teal-50 text-teal-600', spot: 'rgba(20,184,166,0.16)', accent: 'text-teal-600' },
+  brand: { icon: 'bg-brand-50 text-brand-600', accent: 'text-brand-600' },
+  amber: { icon: 'bg-amber-50 text-amber-600', accent: 'text-amber-600' },
+  red: { icon: 'bg-red-50 text-red-600', accent: 'text-red-600' },
+  emerald: { icon: 'bg-emerald-50 text-emerald-600', accent: 'text-emerald-600' },
+  violet: { icon: 'bg-violet-50 text-violet-600', accent: 'text-violet-600' },
+  blue: { icon: 'bg-blue-50 text-blue-600', accent: 'text-blue-600' },
+  slate: { icon: 'bg-slate-100 text-slate-600', accent: 'text-slate-700' },
+  teal: { icon: 'bg-teal-50 text-teal-600', accent: 'text-teal-600' },
 };
 
-/** KPI tile: spotlight hover + animated count. `value` may be a number (animated) or string. */
+/** KPI tile. `value` may be a number (counted up once) or a string. */
 export function StatCard({ label, value, icon: Icon, tone = 'brand', hint, delta, onClick, prefix = '', suffix = '', index = 0, loading, active, className = '' }) {
   const reduced = useReducedMotion();
   const t = toneMap[tone] || toneMap.brand;
@@ -80,12 +73,11 @@ export function StatCard({ label, value, icon: Icon, tone = 'brand', hint, delta
       transition={{ delay: index * 0.06, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       className={cn('text-left w-full h-full group', onClick && 'cursor-pointer', className)}
     >
-      <SpotlightCard
-        spotlightColor={t.spot}
+      <div
         className={cn(
-          '!rounded-2xl !p-5 !bg-white !border-slate-200/80 shadow-card transition-all duration-300 h-full flex flex-col',
-          onClick && 'group-hover:shadow-card-hover group-hover:-translate-y-0.5 group-hover:border-slate-300',
-          active && '!border-brand-400 ring-2 ring-brand-100',
+          'rounded-2xl p-5 bg-surface border border-slate-200/80 shadow-card transition-[border-color,box-shadow] duration-200 h-full flex flex-col',
+          onClick && 'group-hover:shadow-card-hover group-hover:border-slate-300',
+          active && 'border-brand-400 ring-2 ring-brand-100',
         )}
       >
         <div className="flex items-start justify-between gap-3">
@@ -98,7 +90,7 @@ export function StatCard({ label, value, icon: Icon, tone = 'brand', hint, delta
           {loading ? (
             <div className="skeleton h-8 w-20" />
           ) : (
-            <p className="font-display text-xl sm:text-[26px] font-bold text-slate-900 leading-none tabular break-words min-w-0">
+            <p className="text-xl sm:text-[26px] font-bold text-slate-900 leading-none tabular break-words min-w-0">
               {prefix}
               {numeric && !reduced ? <CountUp to={value} from={0} duration={0.9} separator="," /> : numeric ? value.toLocaleString('en-IN') : value ?? '—'}
               {suffix}
@@ -114,7 +106,7 @@ export function StatCard({ label, value, icon: Icon, tone = 'brand', hint, delta
           </div>
           {hint && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{hint}</p>}
         </div>
-      </SpotlightCard>
+      </div>
     </Wrapper>
   );
 }
@@ -122,7 +114,7 @@ export function StatCard({ label, value, icon: Icon, tone = 'brand', hint, delta
 export function EmptyState({ icon: Icon = Inbox, title = 'Nothing here yet', description, action, className = '', compact }) {
   return (
     <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'py-8' : 'py-16', className)}>
-      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 grid place-items-center text-slate-400 mb-3">
+      <div className="w-14 h-14 rounded-2xl bg-slate-100 grid place-items-center text-slate-400 mb-3">
         <Icon className="w-6 h-6" />
       </div>
       <p className="font-display text-[15px] font-semibold text-slate-800">{title}</p>

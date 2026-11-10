@@ -6,6 +6,7 @@ import React, {
   useCallback,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api/axios';
 
 const AuthContext = createContext(null);
 
@@ -40,6 +41,15 @@ export function AuthProvider({ children }) {
       if (savedToken && savedUser) {
         setToken(savedToken);
         setUser(JSON.parse(savedUser));
+        // Refresh the saved profile so department / role changes show without a new login.
+        api.get('/auth/me')
+          .then((r) => {
+            const fresh = r.data?.data;
+            if (!fresh) return;
+            setUser((u) => ({ ...u, ...fresh }));
+            localStorage.setItem('inventbot_user', JSON.stringify({ ...JSON.parse(savedUser), ...fresh }));
+          })
+          .catch(() => {}); // a 401 is handled by the axios interceptor
       }
     } catch {
       localStorage.removeItem('inventbot_token');
@@ -52,7 +62,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = useCallback(
-    (userData, jwtToken) => {
+    (userData, jwtToken, redirectTo) => {
       setUser(userData);
       setToken(jwtToken);
       localStorage.setItem('inventbot_token', jwtToken);
@@ -60,7 +70,9 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       const home = ROLE_HOMES[userData?.role] || '/login';
-      navigate(home, { replace: true });
+      // redirectTo: the page that sent the user to login (e.g. a scanned gate-pass link).
+      // Role guards on that page still bounce users who may not open it.
+      navigate(redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : home, { replace: true });
     },
     [navigate]
   );

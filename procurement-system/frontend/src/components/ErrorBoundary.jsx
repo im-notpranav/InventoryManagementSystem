@@ -20,7 +20,7 @@ export default class ErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
-        <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-card p-8 text-center">
+        <div className="max-w-md w-full bg-surface rounded-2xl border border-slate-200 shadow-card p-8 text-center">
           <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 grid place-items-center mx-auto mb-4">
             <AlertTriangle className="w-7 h-7" />
           </div>
@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-5 inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand-700 text-white text-sm font-medium hover:bg-brand-600"
+            className="mt-5 inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand-500 text-white text-sm font-medium hover:bg-brand-600"
           >
             <RefreshCw className="w-4 h-4" /> Reload
           </button>

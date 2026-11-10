@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, X, Send, Trash2, Sparkles, Maximize2, Package, AlertTriangle, ClipboardList, Shield, Store, BarChart3 } from 'lucide-react';
+import { Bot, X, Send, Trash2, Maximize2, Package, AlertTriangle, ClipboardList, Shield, Store, BarChart3 } from 'lucide-react';
 import useChatbotStore from '../store/chatbot.store';
 import { chatbotApi } from '../api/index.js';
 import { useAuth } from '../context/AuthContext';
@@ -68,7 +68,7 @@ export default function ChatbotWidget() {
       else addMessage({ role: 'assistant', content: 'I could not generate a response right now.', isError: true, retryText: t });
     } catch (err) {
       const status = err?.response?.status;
-      addMessage({ role: 'assistant', content: status === 429 ? 'Please wait a moment before sending more.' : status === 503 ? 'InventBot is temporarily unavailable.' : "Sorry, I couldn't reach the server. Is the API running?", isError: true, retryText: t });
+      addMessage({ role: 'assistant', content: status === 429 ? 'Please wait a moment before sending more.' : status === 503 ? 'The assistant is temporarily unavailable.' : "Sorry, I couldn't reach the server. Is the API running?", isError: true, retryText: t });
     } finally {
       setLoading(false);
     }
@@ -89,16 +89,11 @@ export default function ChatbotWidget() {
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.94 }}
             onClick={toggle}
-            className="fixed bottom-[104px] right-4 lg:bottom-6 lg:right-6 z-[60] h-14 pl-4 pr-5 rounded-full text-white flex items-center gap-2.5 shadow-[0_16px_40px_-10px_rgba(30,58,95,0.55)]"
-            style={{ background: 'linear-gradient(135deg, #1e3a5f, #2e75b6)' }}
-            aria-label="Open InventBot assistant"
+            className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 z-[60] h-12 pl-4 pr-5 rounded-full bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-2 shadow-pop transition-colors"
+            aria-label="Open assistant"
           >
-            <span className="relative">
-              <Bot className="w-5 h-5" />
-              {!reduced && <span className="absolute -inset-3 rounded-full bg-white/20 animate-ping opacity-40" />}
-            </span>
-            <span className="text-sm font-semibold hidden sm:inline">Ask InventBot</span>
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <Bot className="w-5 h-5" />
+            <span className="text-sm font-semibold hidden sm:inline">Assistant</span>
           </motion.button>
         )}
       </AnimatePresence>
@@ -112,24 +107,23 @@ export default function ChatbotWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 360, damping: 30 }}
-            className="fixed z-[70] inset-x-3 bottom-3 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[400px] h-[min(620px,calc(100vh-2rem))] bg-white rounded-2xl shadow-pop border border-slate-200 flex flex-col overflow-hidden"
+            className="fixed z-[70] inset-x-3 bottom-3 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[400px] h-[min(620px,calc(100vh-2rem))] bg-surface rounded-2xl shadow-pop border border-slate-200 flex flex-col overflow-hidden"
             role="dialog"
-            aria-label="InventBot assistant"
+            aria-label="Assistant"
           >
             {/* header */}
-            <div className="relative px-4 py-3 flex items-center justify-between text-white shrink-0" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #2e75b6 100%)' }}>
-              <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #93c5fd, transparent 45%)' }} />
-              <div className="relative flex items-center gap-3">
-                <span className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur grid place-items-center"><Bot className="w-5 h-5" /></span>
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-full bg-brand-50 text-brand-600 grid place-items-center"><Bot className="w-5 h-5" /></span>
                 <div>
-                  <p className="font-display font-semibold text-sm leading-tight">InventBot AI</p>
-                  <p className="text-[11px] text-blue-100/80 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online · answers from live data</p>
+                  <p className="font-semibold text-sm text-slate-900 leading-tight">Assistant</p>
+                  <p className="text-[11px] text-slate-500">Answers from live inventory data</p>
                 </div>
               </div>
-              <div className="relative flex items-center gap-0.5">
-                <button type="button" onClick={() => { toggle(); navigate('/chatbot'); }} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Open full page"><Maximize2 className="w-4 h-4" /></button>
-                <button type="button" onClick={clearMessages} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Clear chat"><Trash2 className="w-4 h-4" /></button>
-                <button type="button" onClick={toggle} className="w-8 h-8 rounded-lg hover:bg-white/15 grid place-items-center text-white/80 hover:text-white" title="Close"><X className="w-4 h-4" /></button>
+              <div className="flex items-center gap-0.5">
+                <button type="button" onClick={() => { toggle(); navigate('/chatbot'); }} className="w-8 h-8 rounded-lg hover:bg-slate-100 grid place-items-center text-slate-500 hover:text-slate-900" title="Open full page"><Maximize2 className="w-4 h-4" /></button>
+                <button type="button" onClick={clearMessages} className="w-8 h-8 rounded-lg hover:bg-slate-100 grid place-items-center text-slate-500 hover:text-slate-900" title="Clear chat"><Trash2 className="w-4 h-4" /></button>
+                <button type="button" onClick={toggle} className="w-8 h-8 rounded-lg hover:bg-slate-100 grid place-items-center text-slate-500 hover:text-slate-900" title="Close"><X className="w-4 h-4" /></button>
               </div>
             </div>
 
@@ -142,7 +136,7 @@ export default function ChatbotWidget() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 px-1 mb-2">Try one of these</p>
                   <div className="grid grid-cols-2 gap-2">
                     {STARTERS.map((c, i) => (
-                      <motion.button key={c.title} type="button" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * i }} onClick={() => send(c.msg)} className="text-left rounded-xl border border-slate-200 bg-white p-3 hover:border-brand-300 hover:shadow-card transition group">
+                      <motion.button key={c.title} type="button" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * i }} onClick={() => send(c.msg)} className="text-left rounded-xl border border-slate-200 bg-surface p-3 hover:border-brand-300 hover:shadow-card transition group">
                         <span className={cn('w-7 h-7 rounded-lg grid place-items-center', c.tone)}><c.icon className="w-3.5 h-3.5" /></span>
                         <p className="text-xs font-semibold text-slate-800 mt-2 group-hover:text-brand-800">{c.title}</p>
                         <p className="text-[10.5px] text-slate-500 leading-snug mt-0.5 line-clamp-2">{c.msg}</p>
@@ -155,26 +149,25 @@ export default function ChatbotWidget() {
               {isLoading && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2.5">
                   <BotAvatar size="sm" className="mt-0.5" />
-                  <div className="rounded-2xl rounded-tl-md bg-white border border-slate-200/80 shadow-card px-3.5 py-2.5"><TypingDots label={THINKING[thinkIdx]} /></div>
+                  <div className="rounded-2xl rounded-tl-md bg-surface border border-slate-200/80 shadow-card px-3.5 py-2.5"><TypingDots label={THINKING[thinkIdx]} /></div>
                 </motion.div>
               )}
               <div ref={endRef} />
             </div>
 
             {/* composer */}
-            <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-2.5">
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 focus-within:border-brand-500 focus-within:bg-white focus-within:shadow-glow transition">
-                <Sparkles className="w-4 h-4 text-brand-400 shrink-0" />
+            <div className="shrink-0 border-t border-slate-200 bg-surface px-3 py-2.5">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 focus-within:border-brand-500 focus-within:bg-surface focus-within:shadow-glow transition">
                 <input
                   id="chatbot-input"
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value.slice(0, MAX))}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder="Ask InventBot…"
+                  placeholder="Ask about stock, orders, warranties…"
                   className="flex-1 bg-transparent py-2.5 text-sm outline-none placeholder:text-slate-400"
                 />
-                <motion.button whileTap={{ scale: 0.92 }} type="button" onClick={() => send()} disabled={!input.trim() || isLoading} className="w-8 h-8 rounded-lg grid place-items-center bg-brand-700 text-white disabled:bg-slate-200 disabled:text-slate-400 transition shrink-0" aria-label="Send">
+                <motion.button whileTap={{ scale: 0.92 }} type="button" onClick={() => send()} disabled={!input.trim() || isLoading} className="w-8 h-8 rounded-lg grid place-items-center bg-brand-500 text-white disabled:bg-slate-200 disabled:text-slate-400 transition shrink-0" aria-label="Send">
                   <Send className="w-3.5 h-3.5" />
                 </motion.button>
               </div>

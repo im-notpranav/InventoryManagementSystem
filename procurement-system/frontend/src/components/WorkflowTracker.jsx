@@ -16,7 +16,7 @@ export default function WorkflowTracker({ currentStep = 0, rejected = false, ste
         {/* rail */}
         <div className="absolute left-[5%] right-[5%] top-[18px] h-0.5 bg-slate-200 rounded-full" />
         <motion.div
-          className={cn('absolute left-[5%] top-[18px] h-0.5 rounded-full', rejected ? 'bg-red-400' : 'bg-gradient-to-r from-emerald-500 to-brand-500')}
+          className={cn('absolute left-[5%] top-[18px] h-0.5 rounded-full', rejected ? 'bg-red-400' : 'bg-emerald-500')}
           initial={{ width: 0 }}
           animate={{ width: `${pct * 0.9}%` }}
           transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
@@ -35,9 +35,9 @@ export default function WorkflowTracker({ currentStep = 0, rejected = false, ste
                   className={cn(
                     'relative z-10 w-9 h-9 rounded-full grid place-items-center text-xs font-semibold border-2 transition-colors',
                     done && 'bg-emerald-500 border-emerald-500 text-white',
-                    active && 'bg-brand-700 border-brand-700 text-white shadow-[0_0_0_6px_rgba(46,117,182,0.15)]',
+                    active && 'bg-brand-500 border-brand-500 text-white ring-4 ring-brand-100',
                     halted && 'bg-red-500 border-red-500 text-white',
-                    !done && !active && !halted && 'bg-white border-slate-300 text-slate-400',
+                    !done && !active && !halted && 'bg-surface border-slate-300 text-slate-400',
                   )}
                 >
                   {done ? <Check className="w-4 h-4" /> : halted ? <X className="w-4 h-4" /> : i + 1}

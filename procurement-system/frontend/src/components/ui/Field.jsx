@@ -75,7 +75,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', classN
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="ui-input pl-9 pr-9 bg-white"
+        className="ui-input pl-9 pr-9 bg-surface"
         type="search"
       />
       {value && (
@@ -123,7 +123,7 @@ export function Switch({ checked, onChange, label, disabled }) {
       >
         <span
           className={cn(
-            'inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200',
+            'inline-block h-5 w-5 rounded-full bg-surface shadow transform transition-transform duration-200',
             checked ? 'translate-x-5' : 'translate-x-0.5',
           )}
         />
@@ -147,7 +147,7 @@ export function Segmented({ value, onChange, options, className = '', size = 'md
             className={cn(
               'flex-1 rounded-lg font-medium transition-all duration-200 whitespace-nowrap',
               size === 'sm' ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm',
-              active ? 'bg-white text-slate-900 shadow-card' : 'text-slate-500 hover:text-slate-800',
+              active ? 'bg-surface text-slate-900 shadow-card' : 'text-slate-500 hover:text-slate-800',
             )}
           >
             {o.label}
@@ -182,12 +182,12 @@ export function FileDrop({ file, onChange, accept = '.pdf', label = 'Choose a fi
       className={cn(
         'relative flex items-center gap-3 rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer',
         compact ? 'px-3 py-2.5' : 'px-4 py-4',
-        drag ? 'border-brand-500 bg-brand-50/60' : file ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200 bg-slate-50/60 hover:border-brand-300 hover:bg-white',
+        drag ? 'border-brand-500 bg-brand-50/60' : file ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200 bg-slate-50/60 hover:border-brand-300 hover:bg-surface',
         error && 'border-red-300 bg-red-50/40',
       )}
     >
       <input id={id} type="file" accept={accept} className="sr-only" onChange={(e) => pick(e.target.files?.[0])} />
-      <div className={cn('w-10 h-10 rounded-xl grid place-items-center shrink-0', file ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-brand-600 shadow-card')}>
+      <div className={cn('w-10 h-10 rounded-xl grid place-items-center shrink-0', file ? 'bg-emerald-100 text-emerald-700' : 'bg-surface text-brand-600 shadow-card')}>
         {file ? <CheckCircle2 className="w-5 h-5" /> : <UploadCloud className="w-5 h-5" />}
       </div>
       <div className="min-w-0 flex-1">

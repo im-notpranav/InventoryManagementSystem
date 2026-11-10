@@ -7,12 +7,14 @@ export default function Avatar({ name, size = 'md', className = '', ring = false
   const h = hueFor(name);
   return (
     <div
-      className={cn('rounded-xl grid place-items-center font-semibold shrink-0 select-none', sizes[size] || sizes.md, ring && 'ring-2 ring-white shadow-card', className)}
-      style={
-        solid
-          ? { background: `linear-gradient(135deg, hsl(${h} 55% 45%), hsl(${(h + 30) % 360} 60% 38%))`, color: '#fff' }
-          : { background: `hsl(${h} 70% 94%)`, color: `hsl(${h} 45% 32%)` }
-      }
+      className={cn(
+        'rounded-full grid place-items-center font-semibold shrink-0 select-none',
+        sizes[size] || sizes.md,
+        solid && 'bg-brand-500 text-white',
+        ring && 'ring-2 ring-surface shadow-card',
+        className,
+      )}
+      style={solid ? undefined : { background: `hsl(${h} 60% 50% / 0.14)`, color: `hsl(${h} 45% 45%)` }}
       aria-hidden
     >
       {initials(name)}

@@ -1,5 +1,5 @@
 import { cn } from '../../lib/utils';
-import { statusMeta, PRIORITY } from '../../lib/status';
+import { statusMeta } from '../../lib/status';
 
 export const TONES = {
   slate: 'bg-slate-100 text-slate-700 ring-slate-200/60',
@@ -54,15 +54,6 @@ export function StatusBadge({ status, dot = true, pulse, className, size }) {
   const meta = statusMeta(status);
   return (
     <Badge tone={meta.tone} dot={dot} pulse={pulse ?? status === 'pending'} className={className} size={size}>
-      {meta.label}
-    </Badge>
-  );
-}
-
-export function PriorityBadge({ priority, className }) {
-  const meta = PRIORITY[priority] || { tone: 'slate', label: priority || '—' };
-  return (
-    <Badge tone={meta.tone} className={className}>
       {meta.label}
     </Badge>
   );

@@ -4,9 +4,9 @@ import { cn } from '../../lib/utils';
 
 const variants = {
   primary:
-    'bg-brand-700 text-white shadow-[0_1px_2px_rgba(15,23,42,0.2),inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-brand-600 hover:shadow-card-hover active:bg-brand-800',
-  secondary: 'bg-white text-slate-700 border border-slate-200 shadow-card hover:bg-slate-50 hover:border-slate-300',
-  soft: 'bg-brand-50 text-brand-700 hover:bg-brand-100',
+    'bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-500',
+  secondary: 'bg-surface text-slate-700 border border-slate-200 shadow-card hover:bg-slate-50 hover:border-slate-300',
+  soft: 'bg-brand-50 text-brand-600 hover:bg-brand-100',
   ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
   danger: 'bg-red-600 text-white hover:bg-red-700 shadow-card',
   'danger-soft': 'bg-red-50 text-red-700 hover:bg-red-100',

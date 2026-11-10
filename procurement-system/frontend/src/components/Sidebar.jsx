@@ -1,137 +1,112 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, LogOut, ChevronLeft, Settings, X } from 'lucide-react';
+import { LogOut, PanelLeft, Settings, X, ChevronsUpDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { navFor } from './navConfig';
 import Avatar from './ui/Avatar';
-import ShinyText from './reactbits/ShinyText/ShinyText';
+import { MlritMark } from './brand/Brand';
+import { useDismiss, usePolling } from '../hooks';
 import { cn } from '../lib/utils';
 
-const ROLE_TAGLINE = {
-  Admin: 'Administrator',
-  'Department User': 'Department',
-  Vendor: 'Supplier partner',
-  Watchman: 'Security desk',
-  Accountant: 'Accounts',
+const ROLE_PORTAL = {
+  Admin: 'Admin portal',
+  'Department User': 'Department portal',
+  Vendor: 'Vendor portal',
+  Watchman: 'Security portal',
+  Accountant: 'Accounts portal',
 };
 
 export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [pendingBills, setPendingBills] = useState(0);
-  const [hovered, setHovered] = useState(null);
-  const [tip, setTip] = useState(null); // { label, top }
+  const [tip, setTip] = useState(null); // { label, top, left }
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  useDismiss(menuRef, () => setMenuOpen(false), menuOpen);
 
-  // Accountant badge: pending bills
-  useEffect(() => {
-    if (user?.role !== 'Accountant' && user?.role !== 'Admin') return undefined;
-    let active = true;
-    const load = async () => {
-      try {
-        const r = await api.get('/billing/pending');
-        if (active) setPendingBills((r.data?.data || []).length);
-      } catch {
-        if (active) setPendingBills(0);
-      }
-    };
-    load();
-    const id = setInterval(load, 45000);
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
-  }, [user?.role]);
+  // Pending bills badge for Accountant / Admin
+  const billsBadge = user?.role === 'Accountant' || user?.role === 'Admin';
+  usePolling(async () => {
+    try {
+      const r = await api.get('/billing', { params: { status: user?.role === 'Accountant' ? 'reviewed,bill_approved' : 'reviewed' } });
+      setPendingBills((r.data?.data || []).length);
+    } catch {
+      setPendingBills(0);
+    }
+  }, 45000, billsBadge);
 
   // Close mobile drawer on navigation
   useEffect(() => {
     setMobileOpen?.(false);
+    setMenuOpen(false);
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sections = navFor(user?.role);
   const badgeFor = (to) => (to === '/billing' && ['Accountant', 'Admin'].includes(user?.role) ? pendingBills : 0);
 
-  const body = (
+  const body = (mobile) => (
     <div className="flex flex-col h-full">
       {/* Brand */}
-      <div className={cn('flex items-center gap-3 px-4 h-[68px] border-b border-white/[0.07]', collapsed && 'justify-center px-0')}>
-        <div className="relative w-10 h-10 rounded-xl grid place-items-center shrink-0 bg-gradient-to-br from-brand-500 to-brand-400 shadow-[0_8px_20px_-6px_rgba(46,117,182,0.7)]">
-          <Bot className="w-5 h-5 text-white" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0f172a]" />
-        </div>
-        {!collapsed && (
+      <div className={cn('flex items-center gap-3 px-4 pt-4 pb-3', collapsed && !mobile && 'justify-center px-0')}>
+        <MlritMark className="w-10 h-10 shrink-0" />
+        {(!collapsed || mobile) && (
           <div className="min-w-0">
-            <ShinyText text="InventBot" speed={4} color="#dbeafe" shineColor="#ffffff" className="font-display text-lg font-bold leading-none" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-blue-200/50 mt-1">{ROLE_TAGLINE[user?.role] || user?.role}</p>
+            <p className="text-[15px] font-bold text-slate-900 leading-tight">MLRIT Procurement</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 mt-0.5">{ROLE_PORTAL[user?.role] || 'Portal'}</p>
           </div>
         )}
-        {setMobileOpen && (
-          <button type="button" onClick={() => setMobileOpen(false)} className="ml-auto lg:hidden w-8 h-8 rounded-lg grid place-items-center text-blue-200/70 hover:bg-white/10 hover:text-white" aria-label="Close menu">
+        {mobile && (
+          <button type="button" onClick={() => setMobileOpen(false)} className="ml-auto w-8 h-8 rounded-full grid place-items-center text-slate-500 hover:bg-slate-100" aria-label="Close menu">
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto scrollbar-none py-4 px-2.5 space-y-5" aria-label="Main">
+      <nav className="flex-1 overflow-y-auto scrollbar-none px-3 pt-2 pb-4 space-y-5" aria-label="Main">
         {sections.map((section) => (
           <div key={section.section}>
-            {!collapsed ? (
-              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/40">{section.section}</p>
+            {!collapsed || mobile ? (
+              <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{section.section}</p>
             ) : (
-              <div className="mx-3 mb-2 border-t border-white/[0.07]" />
+              <div className="mx-3 mb-2 border-t border-slate-200" />
             )}
             <ul className="space-y-0.5">
               {section.items.map((item) => {
                 const badge = badgeFor(item.to);
                 const Icon = item.icon;
+                const iconOnly = collapsed && !mobile;
                 return (
-                  <li key={item.to} className="relative">
+                  <li key={item.to}>
                     <NavLink
                       to={item.to}
                       onMouseEnter={(e) => {
-                        setHovered(item.to);
+                        if (!iconOnly) return;
                         const r = e.currentTarget.getBoundingClientRect();
                         setTip({ label: item.label, top: r.top + r.height / 2, left: r.right });
                       }}
-                      onMouseLeave={() => {
-                        setHovered(null);
-                        setTip(null);
-                      }}
+                      onMouseLeave={() => setTip(null)}
                       className={({ isActive }) =>
                         cn(
-                          'group relative flex items-center gap-3 rounded-xl text-[13.5px] font-medium transition-colors duration-200',
-                          collapsed ? 'justify-center h-11 w-11 mx-auto' : 'px-3 h-10',
-                          isActive ? 'text-white' : 'text-blue-100/60 hover:text-white',
+                          'relative flex items-center gap-3 rounded-xl text-[14px] transition-colors duration-150',
+                          iconOnly ? 'justify-center h-11 w-11 mx-auto' : 'px-3 h-11',
+                          isActive ? 'bg-brand-50 text-brand-600 font-semibold' : 'text-slate-600 font-medium hover:bg-slate-100 hover:text-slate-900',
                         )
                       }
                     >
-                      {({ isActive }) => (
-                        <>
-                          {isActive && (
-                            <motion.span
-                              layoutId="sidebar-active"
-                              className="absolute inset-0 rounded-xl bg-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                              transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-                            />
-                          )}
-                          {!isActive && hovered === item.to && <span className="absolute inset-0 rounded-xl bg-white/[0.05]" />}
-                          {isActive && !collapsed && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-brand-300" />}
-                          <Icon className={cn('relative z-10 w-[18px] h-[18px] shrink-0 transition-transform duration-200', isActive ? 'text-brand-200' : 'group-hover:scale-110')} />
-                          {!collapsed && <span className="relative z-10 truncate">{item.label}</span>}
-                          {badge > 0 && (
-                            <span
-                              className={cn(
-                                'relative z-10 rounded-full bg-red-500 text-white text-[10px] font-bold tabular grid place-items-center',
-                                collapsed ? 'absolute -top-0.5 -right-0.5 w-4 h-4' : 'ml-auto px-1.5 h-[18px] min-w-[18px]',
-                              )}
-                            >
-                              {badge > 99 ? '99+' : badge}
-                            </span>
-                          )}
-                        </>
-                      )}
+                      <Icon className="w-[19px] h-[19px] shrink-0" strokeWidth={1.8} />
+                      {!iconOnly && <span className="truncate">{item.label}</span>}
+                      {badge > 0 &&
+                        (iconOnly ? (
+                          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-brand-500" />
+                        ) : (
+                          <span className="ml-auto rounded-full bg-brand-500 text-white text-[10px] font-bold tabular px-1.5 h-[18px] min-w-[18px] grid place-items-center">
+                            {badge > 99 ? '99+' : badge}
+                          </span>
+                        ))}
                     </NavLink>
                   </li>
                 );
@@ -141,54 +116,74 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
         ))}
       </nav>
 
-      {/* User */}
-      <div className="p-3 border-t border-white/[0.07]">
-        <div className={cn('rounded-2xl bg-white/[0.05] border border-white/[0.06] p-2.5', collapsed && 'p-1.5')}>
-          <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
-            <Avatar name={user?.name} size="md" solid />
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="text-white text-[13px] font-semibold truncate leading-tight">{user?.name || 'User'}</p>
-                <p className="text-[11px] text-blue-200/50 truncate">{user?.email || ''}</p>
-              </div>
-            )}
-          </div>
-          <div className={cn('mt-2 grid gap-1', collapsed ? 'grid-cols-1' : 'grid-cols-2')}>
-            <NavLink
-              to="/settings"
-              className={cn('flex items-center justify-center gap-1.5 h-8 rounded-lg text-[12px] font-medium text-blue-100/70 hover:text-white hover:bg-white/10 transition', collapsed && 'w-full')}
-              title="Settings"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              {!collapsed && 'Settings'}
-            </NavLink>
-            <button
-              type="button"
-              onClick={logout}
-              className="flex items-center justify-center gap-1.5 h-8 rounded-lg text-[12px] font-medium text-blue-100/70 hover:text-white hover:bg-red-500/80 transition"
-              title="Sign out"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              {!collapsed && 'Sign out'}
-            </button>
-          </div>
+      {/* Collapse */}
+      {!mobile && (
+        <div className="flex justify-center pb-2">
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-9 h-9 rounded-lg grid place-items-center text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <PanelLeft className="w-[18px] h-[18px]" strokeWidth={1.8} />
+          </button>
         </div>
+      )}
+
+      {/* User */}
+      <div className="relative border-t border-slate-200 p-3" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((o) => !o)}
+          className={cn('w-full flex items-center gap-3 rounded-xl p-1.5 hover:bg-slate-100 transition-colors text-left', collapsed && !mobile && 'justify-center')}
+          aria-expanded={menuOpen}
+        >
+          <Avatar name={user?.name} size="md" solid />
+          {(!collapsed || mobile) && (
+            <>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold text-slate-900 truncate uppercase">{user?.name || 'User'}</span>
+                <span className="block text-[11px] text-slate-500 truncate">{user?.email || ''}</span>
+              </span>
+              <ChevronsUpDown className="w-4 h-4 text-slate-400 shrink-0" />
+            </>
+          )}
+        </button>
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.14 }}
+              className={cn('absolute bottom-full mb-2 z-50 w-52 rounded-xl border border-slate-200 bg-surface shadow-pop p-1', collapsed && !mobile ? 'left-full ml-2 bottom-3 mb-0' : 'left-3 right-3 w-auto')}
+            >
+              <NavLink to="/settings" className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-100">
+                <Settings className="w-4 h-4 text-slate-500" /> Settings
+              </NavLink>
+              <button type="button" onClick={logout} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50">
+                <LogOut className="w-4 h-4" /> Sign out
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop */}
-      <motion.aside
-        initial={false}
-        animate={{ width: collapsed ? 84 : 264 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-        className="hidden lg:flex flex-col relative shrink-0 h-screen sticky top-0 text-white"
-        style={{ background: 'linear-gradient(180deg, #0b1324 0%, #0f172a 35%, #1e3a5f 100%)' }}
-      >
-        <div className="absolute inset-0 pointer-events-none opacity-[0.35]" style={{ backgroundImage: 'radial-gradient(circle at 20% 0%, rgba(79,143,192,0.35), transparent 45%), radial-gradient(circle at 80% 100%, rgba(46,117,182,0.25), transparent 45%)' }} />
-        <div className="relative z-10 h-full">{body}</div>
+      {/* Desktop: floating card */}
+      <div className="hidden lg:block shrink-0 sticky top-0 h-screen p-3 pr-0">
+        <motion.aside
+          initial={false}
+          animate={{ width: collapsed ? 80 : 252 }}
+          transition={{ type: 'spring', stiffness: 360, damping: 38 }}
+          className="h-full rounded-2xl border border-slate-200 bg-surface shadow-card overflow-hidden"
+        >
+          {body(false)}
+        </motion.aside>
         <AnimatePresence>
           {collapsed && tip && (
             <motion.div
@@ -196,23 +191,14 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -4 }}
               transition={{ duration: 0.12 }}
-              style={{ top: tip.top, left: tip.left + 12 }}
-              className="pointer-events-none fixed -translate-y-1/2 z-[80] whitespace-nowrap rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-pop border border-white/10"
+              style={{ top: tip.top, left: tip.left + 10 }}
+              className="pointer-events-none fixed -translate-y-1/2 z-[80] whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-canvas shadow-pop"
             >
               {tip.label}
-              <span className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-slate-900 border-l border-b border-white/10" />
             </motion.div>
           )}
         </AnimatePresence>
-        <button
-          type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-[26px] z-20 w-6 h-6 rounded-full grid place-items-center bg-brand-500 text-white shadow-card hover:bg-brand-400 transition"
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <ChevronLeft className={cn('w-3 h-3 transition-transform duration-300', collapsed && 'rotate-180')} />
-        </button>
-      </motion.aside>
+      </div>
 
       {/* Mobile drawer */}
       <AnimatePresence>
@@ -222,18 +208,17 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-[2px] lg:hidden"
+              className="fixed inset-0 z-[90] bg-black/40 lg:hidden"
               onClick={() => setMobileOpen(false)}
             />
             <motion.aside
-              initial={{ x: -280 }}
+              initial={{ x: -290 }}
               animate={{ x: 0 }}
-              exit={{ x: -280 }}
+              exit={{ x: -290 }}
               transition={{ type: 'spring', stiffness: 380, damping: 36 }}
-              className="fixed inset-y-0 left-0 z-[95] w-[272px] lg:hidden text-white shadow-pop"
-              style={{ background: 'linear-gradient(180deg, #0b1324 0%, #0f172a 35%, #1e3a5f 100%)' }}
+              className="fixed inset-y-2 left-2 z-[95] w-[272px] rounded-2xl border border-slate-200 bg-surface shadow-pop lg:hidden"
             >
-              {body}
+              {body(true)}
             </motion.aside>
           </>
         )}

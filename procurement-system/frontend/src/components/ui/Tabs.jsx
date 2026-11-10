@@ -56,7 +56,7 @@ export default function Tabs({ tabs, value, onChange, variant = 'segmented', cla
             {active && (
               <motion.span
                 layoutId={`${id}-bg`}
-                className={cn('absolute inset-0 rounded-lg', isPill ? 'bg-brand-700 shadow-card' : 'bg-white shadow-card')}
+                className={cn('absolute inset-0 rounded-lg', isPill ? 'bg-brand-500 shadow-card' : 'bg-surface shadow-card')}
                 transition={{ type: 'spring', stiffness: 500, damping: 38 }}
               />
             )}
@@ -89,7 +89,7 @@ export function FilterChips({ options, value, onChange, className = '' }) {
         const active = o.value === value;
         return (
           <button key={o.value} type="button" onClick={() => onChange(o.value)} className={cn('chip', active ? 'chip-active' : 'chip-idle')}>
-            {o.dot && <span className={cn('w-1.5 h-1.5 rounded-full', active ? 'bg-white/80' : o.dot)} />}
+            {o.dot && <span className={cn('w-1.5 h-1.5 rounded-full', active ? 'bg-surface/80' : o.dot)} />}
             {o.label}
             {o.count !== undefined && <span className={cn('tabular', active ? 'text-white/80' : 'text-slate-400')}>{o.count}</span>}
           </button>

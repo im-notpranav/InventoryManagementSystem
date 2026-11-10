@@ -75,7 +75,7 @@ export default function Modal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-            className={cn('relative w-full bg-white rounded-2xl shadow-pop border border-slate-200/70 my-auto flex flex-col max-h-[calc(100vh-3rem)]', sizes[size], className)}
+            className={cn('relative w-full bg-surface rounded-2xl shadow-pop border border-slate-200/70 my-auto flex flex-col max-h-[calc(100vh-3rem)]', sizes[size], className)}
           >
             {(title || dismissible) && (
               <div className="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-slate-100 shrink-0">

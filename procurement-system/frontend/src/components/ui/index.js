@@ -1,5 +1,5 @@
 export { default as Button } from './Button';
-export { default as Badge, StatusBadge, PriorityBadge, TONES } from './Badge';
+export { default as Badge, StatusBadge, TONES } from './Badge';
 export { Field, Input, Textarea, Select, PasswordInput, SearchInput, Checkbox, Switch, Segmented, FileDrop } from './Field';
 export { default as Modal } from './Modal';
 export { FeedbackProvider, useToast, useConfirm } from './Feedback';

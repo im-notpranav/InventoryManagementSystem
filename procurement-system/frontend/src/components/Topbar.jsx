@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Search, Bot, Menu, Check, CheckCheck, ArrowRight, Command, Settings, LogOut, ChevronDown, Sparkles } from 'lucide-react';
+import { Bell, Search, Bot, Menu, Check, CheckCheck, ArrowRight, Command, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import useChatbotStore from '../store/chatbot.store';
 import { notificationsApi } from '../api/index.js';
 import { flatNavFor, COMMON_ITEMS } from './navConfig';
 import Avatar from './ui/Avatar';
+import ThemeToggle from './ThemeToggle';
 import Badge, { DOT } from './ui/Badge';
-import { useDismiss, useHotkey } from '../hooks';
+import { useDismiss, useHotkey, usePolling } from '../hooks';
 import { cn, timeAgo, titleCase } from '../lib/utils';
 
 const NOTIF_TONE = {
@@ -16,6 +17,7 @@ const NOTIF_TONE = {
   rejection: 'red',
   low_stock: 'amber',
   warranty: 'violet',
+  subscription: 'violet',
   rfq: 'blue',
   work_order: 'indigo',
   gate: 'teal',
@@ -31,7 +33,7 @@ function toneFor(type = '') {
   return 'brand';
 }
 
-export default function Topbar({ title, icon: Icon, onMenu, children }) {
+export default function Topbar({ title, onMenu, children }) {
   const { user, logout } = useAuth();
   const openChatbot = useChatbotStore((s) => s.open);
   const navigate = useNavigate();
@@ -56,11 +58,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
     }
   }, []);
 
-  useEffect(() => {
-    loadNotifs();
-    const id = setInterval(loadNotifs, 30000);
-    return () => clearInterval(id);
-  }, [loadNotifs]);
+  usePolling(loadNotifs, 30000);
 
   useDismiss(notifRef, () => setNotifOpen(false), notifOpen);
   useDismiss(userRef, () => setUserOpen(false), userOpen);
@@ -86,61 +84,36 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
 
   return (
     <>
-      <header className="sticky top-0 z-40 h-[68px] shrink-0 flex items-center gap-3 px-4 sm:px-6 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl">
-        <button type="button" onClick={onMenu} className="lg:hidden w-10 h-10 -ml-2 rounded-xl grid place-items-center text-slate-600 hover:bg-slate-100" aria-label="Open menu">
+      <header className="sticky top-0 z-40 px-3 sm:px-6 lg:px-8 pt-3">
+        <div className="mx-auto max-w-[1440px] h-[64px] flex items-center gap-2 sm:gap-3 px-2 sm:px-3 rounded-2xl border border-slate-200 bg-surface/90 backdrop-blur-md shadow-card">
+        <button type="button" onClick={onMenu} className="lg:hidden w-10 h-10 rounded-full grid place-items-center text-slate-600 hover:bg-slate-100" aria-label="Open menu">
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          {Icon && (
-            <div className="hidden sm:grid w-9 h-9 rounded-xl bg-brand-50 text-brand-700 place-items-center shrink-0">
-              <Icon className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
-            </div>
-          )}
-          <AnimatePresence mode="wait">
-            <motion.h1
-              key={title}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18 }}
-              className="font-display text-[15px] sm:text-lg font-semibold text-slate-900 truncate min-w-0"
-            >
-              {title}
-            </motion.h1>
-          </AnimatePresence>
-        </div>
+        {/* Search (opens the command palette) */}
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          className="hidden md:flex items-center gap-2.5 h-11 pl-4 pr-2 rounded-full border border-slate-200 bg-slate-50 hover:border-slate-300 text-sm text-slate-500 transition-colors w-full max-w-[440px]"
+        >
+          <Search className="w-4 h-4" />
+          <span className="flex-1 text-left">Search pages…</span>
+          <kbd className="hidden lg:inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+            <Command className="w-2.5 h-2.5" />K
+          </kbd>
+        </button>
+        <p className="md:hidden flex-1 min-w-0 truncate text-[15px] font-semibold text-slate-900">{title}</p>
 
-        <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {children}
-          {/* Command palette trigger */}
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className="hidden md:flex items-center gap-2 h-10 pl-3 pr-2 rounded-xl bg-slate-100/80 hover:bg-slate-100 border border-transparent hover:border-slate-200 text-sm text-slate-500 transition w-56 lg:w-64"
-          >
-            <Search className="w-4 h-4" />
-            <span className="flex-1 text-left">Jump to…</span>
-            <kbd className="hidden lg:inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-              <Command className="w-2.5 h-2.5" />K
-            </kbd>
-          </button>
-          <button type="button" onClick={() => setPaletteOpen(true)} className="md:hidden w-10 h-10 rounded-xl grid place-items-center text-slate-600 hover:bg-slate-100" aria-label="Search">
+          <button type="button" onClick={() => setPaletteOpen(true)} className="md:hidden w-10 h-10 rounded-full grid place-items-center text-slate-600 hover:bg-slate-100" aria-label="Search">
             <Search className="w-[18px] h-[18px]" />
           </button>
 
-          {chatbotAllowed && (
-            <motion.button
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.96 }}
-              type="button"
-              onClick={openChatbot}
-              className="relative w-10 h-10 rounded-xl grid place-items-center text-brand-700 bg-brand-50 hover:bg-brand-100 transition"
-              title="Ask InventBot"
-            >
-              <Bot className="w-[18px] h-[18px]" />
-              <Sparkles className="absolute -top-1 -right-1 w-3.5 h-3.5 text-amber-400" />
-            </motion.button>
+          {user?.role && (
+            <span className="hidden sm:inline-flex items-center h-7 px-3 rounded-full border border-brand-200 bg-brand-50 text-brand-600 text-[11px] font-bold uppercase tracking-[0.06em]">
+              {user.role}
+            </span>
           )}
 
           {/* Notifications */}
@@ -148,7 +121,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
             <button
               type="button"
               onClick={() => setNotifOpen((o) => !o)}
-              className={cn('relative w-10 h-10 rounded-xl grid place-items-center transition', notifOpen ? 'bg-slate-200 text-slate-900' : 'text-slate-600 hover:bg-slate-100')}
+              className={cn('relative w-10 h-10 rounded-full grid place-items-center transition-colors', notifOpen ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-100')}
               aria-label="Notifications"
               aria-expanded={notifOpen}
             >
@@ -158,7 +131,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
                   key={unread}
                   initial={{ scale: 0.6 }}
                   animate={{ scale: 1 }}
-                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold grid place-items-center ring-2 ring-white tabular"
+                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-500 text-white text-[10px] font-bold grid place-items-center ring-2 ring-surface tabular"
                 >
                   {unread > 9 ? '9+' : unread}
                 </motion.span>
@@ -171,7 +144,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.16 }}
-                  className="absolute right-0 mt-2 w-[min(92vw,380px)] rounded-2xl bg-white border border-slate-200 shadow-pop overflow-hidden z-50"
+                  className="absolute right-0 mt-2 w-[min(92vw,380px)] rounded-2xl bg-surface border border-slate-200 shadow-pop overflow-hidden z-50"
                 >
                   <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                     <div className="flex items-center gap-2">
@@ -195,7 +168,13 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
                           <button
                             key={n.notification_id}
                             type="button"
-                            onClick={() => markRead(n)}
+                            onClick={() => {
+                              markRead(n);
+                              if (n.link) {
+                                setNotifOpen(false);
+                                navigate(n.link);
+                              }
+                            }}
                             className={cn('w-full text-left flex gap-3 px-4 py-3 border-b border-slate-50 hover:bg-slate-50 transition', !n.is_read && 'bg-brand-50/40')}
                           >
                             <span className={cn('mt-1.5 w-2 h-2 rounded-full shrink-0', !n.is_read ? DOT[tone] || DOT.brand : 'bg-transparent')} />
@@ -227,20 +206,19 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
             </AnimatePresence>
           </div>
 
+          <span className="hidden sm:block w-px h-6 bg-slate-200" aria-hidden />
+          <ThemeToggle />
+
           {/* User menu */}
           <div className="relative" ref={userRef}>
             <button
               type="button"
               onClick={() => setUserOpen((o) => !o)}
-              className="flex items-center gap-2 h-10 pl-1 pr-2 rounded-xl hover:bg-slate-100 transition"
+              className="flex items-center gap-2 h-10 pl-1 pr-1 sm:pr-3.5 rounded-full border border-slate-200 bg-surface hover:border-slate-300 transition-colors"
               aria-expanded={userOpen}
             >
               <Avatar name={user?.name} size="sm" solid />
-              <div className="hidden xl:block text-left leading-tight">
-                <p className="text-[13px] font-semibold text-slate-800 max-w-[140px] truncate">{user?.name}</p>
-                <p className="text-[11px] text-slate-500">{user?.role}</p>
-              </div>
-              <ChevronDown className="hidden xl:block w-4 h-4 text-slate-400" />
+              <span className="hidden sm:block text-[12px] font-bold uppercase tracking-[0.04em] text-slate-800 max-w-[120px] truncate">{(user?.name || '').split(' ')[0]}</span>
             </button>
             <AnimatePresence>
               {userOpen && (
@@ -249,7 +227,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.16 }}
-                  className="absolute right-0 mt-2 w-60 rounded-2xl bg-white border border-slate-200 shadow-pop overflow-hidden z-50 p-1.5"
+                  className="absolute right-0 mt-2 w-60 rounded-2xl bg-surface border border-slate-200 shadow-pop overflow-hidden z-50 p-1.5"
                 >
                   <div className="flex items-center gap-3 px-2.5 py-2.5">
                     <Avatar name={user?.name} size="md" solid />
@@ -277,6 +255,7 @@ export default function Topbar({ title, icon: Icon, onMenu, children }) {
             </AnimatePresence>
           </div>
         </div>
+        </div>
       </header>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} role={user?.role} onOpenChat={chatbotAllowed ? openChatbot : null} />
@@ -294,7 +273,7 @@ function CommandPalette({ open, onClose, role, onOpenChat }) {
   const items = useMemo(() => {
     const nav = [...flatNavFor(role), ...COMMON_ITEMS].map((i) => ({ ...i, kind: 'Page' }));
     const actions = [];
-    if (onOpenChat) actions.push({ label: 'Ask InventBot AI', icon: Bot, kind: 'Action', run: onOpenChat });
+    if (onOpenChat) actions.push({ label: 'Open assistant', icon: Bot, kind: 'Action', run: onOpenChat });
     return [...nav, ...actions];
   }, [role, onOpenChat]);
 
@@ -340,7 +319,7 @@ function CommandPalette({ open, onClose, role, onOpenChat }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-[3px] flex items-start justify-center pt-[12vh] px-4"
+          className="fixed inset-0 z-[1000] bg-black/40 flex items-start justify-center pt-[12vh] px-4"
           onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
           <motion.div
@@ -348,7 +327,7 @@ function CommandPalette({ open, onClose, role, onOpenChat }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="w-full max-w-xl rounded-2xl bg-white shadow-pop border border-slate-200 overflow-hidden"
+            className="w-full max-w-xl rounded-2xl bg-surface shadow-pop border border-slate-200 overflow-hidden"
           >
             <div className="flex items-center gap-3 px-4 border-b border-slate-100">
               <Search className="w-4 h-4 text-slate-400" />
@@ -377,7 +356,7 @@ function CommandPalette({ open, onClose, role, onOpenChat }) {
                       onClick={() => run(item)}
                       className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors', active ? 'bg-brand-50' : 'hover:bg-slate-50')}
                     >
-                      <span className={cn('w-8 h-8 rounded-lg grid place-items-center shrink-0', active ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600')}>
+                      <span className={cn('w-8 h-8 rounded-lg grid place-items-center shrink-0', active ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600')}>
                         <ItemIcon className="w-4 h-4" />
                       </span>
                       <span className="min-w-0 flex-1">

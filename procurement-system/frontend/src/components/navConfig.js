@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingCart, Truck, Users, FileSearch, DoorOpen, Receipt, Store, ClipboardList,
-  MessageSquare, Package, Shield, Boxes, FileText, Bell, Settings,
+  MessageSquare, Package, Shield, Boxes, Bell, Settings, PackageCheck,
 } from 'lucide-react';
 
 /** Single source of truth for navigation, page titles and command palette entries. */
@@ -10,22 +10,22 @@ export const NAV = {
       section: 'Overview',
       items: [
         { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard', hint: 'KPIs and recent activity' },
-        { label: 'AI Assistant', icon: MessageSquare, to: '/chatbot', hint: 'Ask InventBot anything' },
+        { label: 'Assistant', icon: MessageSquare, to: '/chatbot', hint: 'Ask about stock, orders and vendors' },
       ],
     },
     {
       section: 'Procurement',
       items: [
-        { label: 'Purchase Requests', icon: ShoppingCart, to: '/purchase-requests', hint: 'Review, approve, send RFQs' },
-        { label: 'Quotations', icon: FileSearch, to: '/quotations', hint: 'Compare vendor quotes' },
-        { label: 'Work Orders', icon: ClipboardList, to: '/work-orders', hint: 'Issue and track work orders' },
-        { label: 'Purchase Orders', icon: FileText, to: '/purchase-orders', hint: 'PO register' },
+        { label: 'Purchase Requests', icon: ShoppingCart, to: '/purchase-requests', hint: 'Approve, send to vendors' },
+        { label: 'Quotations', icon: FileSearch, to: '/quotations', hint: 'Compare quotes and pick one' },
+        { label: 'Work Orders', icon: ClipboardList, to: '/work-orders', hint: 'Track deliveries' },
         { label: 'Vendors', icon: Truck, to: '/vendors', hint: 'Supplier directory' },
       ],
     },
     {
       section: 'Operations',
       items: [
+        { label: 'Goods Review', icon: PackageCheck, to: '/goods-review', hint: 'Accept delivered items' },
         { label: 'Inventory', icon: Package, to: '/inventory', hint: 'Stock levels and reorder points' },
         { label: 'Products', icon: Boxes, to: '/products', hint: 'Catalogue' },
         { label: 'Warranties', icon: Shield, to: '/warranties', hint: 'Coverage and subscriptions' },
@@ -43,13 +43,14 @@ export const NAV = {
       section: 'Overview',
       items: [
         { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard' },
-        { label: 'AI Assistant', icon: MessageSquare, to: '/chatbot' },
+        { label: 'Assistant', icon: MessageSquare, to: '/chatbot' },
       ],
     },
     {
       section: 'My Work',
       items: [
         { label: 'My Purchase Requests', icon: ShoppingCart, to: '/purchase-requests' },
+        { label: 'Goods Review', icon: PackageCheck, to: '/goods-review' },
         { label: 'Inventory', icon: Package, to: '/inventory' },
         { label: 'Warranties', icon: Shield, to: '/warranties' },
       ],
@@ -64,10 +65,7 @@ export const NAV = {
   Watchman: [
     {
       section: 'Security',
-      items: [
-        { label: 'Gate Entry', icon: DoorOpen, to: '/gate-entry' },
-        { label: 'Billing', icon: Receipt, to: '/billing' },
-      ],
+      items: [{ label: 'Gate Entry', icon: DoorOpen, to: '/gate-entry' }],
     },
   ],
   Accountant: [
@@ -88,14 +86,14 @@ export const PAGE_META = {
   '/products': { title: 'Products', icon: Boxes },
   '/inventory': { title: 'Inventory', icon: Package },
   '/purchase-requests': { title: 'Purchase Requests', icon: ShoppingCart },
-  '/purchase-orders': { title: 'Purchase Orders', icon: FileText },
+  '/goods-review': { title: 'Goods Review', icon: PackageCheck },
   '/vendors': { title: 'Vendors', icon: Truck },
   '/vendor-portal': { title: 'Vendor Portal', icon: Store },
   '/quotations': { title: 'Quotations', icon: FileSearch },
   '/work-orders': { title: 'Work Orders', icon: ClipboardList },
   '/warranties': { title: 'Warranties', icon: Shield },
   '/notifications': { title: 'Notifications', icon: Bell },
-  '/chatbot': { title: 'AI Assistant', icon: MessageSquare },
+  '/chatbot': { title: 'Assistant', icon: MessageSquare },
   '/gate-entry': { title: 'Gate Entry', icon: DoorOpen },
   '/billing': { title: 'Billing', icon: Receipt },
   '/users': { title: 'Users & Roles', icon: Users },

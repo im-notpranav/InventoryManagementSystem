@@ -82,7 +82,7 @@ export function FeedbackProvider({ children }) {
                     animate={{ opacity: 1, x: 0, scale: 1 }}
                     exit={{ opacity: 0, x: 40, scale: 0.96, transition: { duration: 0.15 } }}
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className={cn('pointer-events-auto relative overflow-hidden rounded-xl border bg-white shadow-pop pl-4 pr-3 py-3 flex items-start gap-3', meta.ring)}
+                    className={cn('pointer-events-auto relative overflow-hidden rounded-xl border bg-surface shadow-pop pl-4 pr-3 py-3 flex items-start gap-3', meta.ring)}
                     role="status"
                   >
                     <span className={cn('absolute left-0 top-0 bottom-0 w-1', meta.bar)} />

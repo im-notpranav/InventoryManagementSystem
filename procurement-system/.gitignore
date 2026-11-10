@@ -5,3 +5,6 @@ build/
 .env.*
 !.env.example
 *.log
+
+# User-uploaded files (runtime data)
+backend/uploads/

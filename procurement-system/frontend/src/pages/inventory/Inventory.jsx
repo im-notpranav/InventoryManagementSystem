@@ -1,34 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Download, Package, Boxes, AlertTriangle, IndianRupee, Warehouse, TrendingDown, Filter } from 'lucide-react';
+import { Plus, Pencil, Download, Package, Boxes, AlertTriangle, IndianRupee, TrendingDown, Filter } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/axios';
 import {
   PageHeader, StatCard, DataTable, Button, Modal, Field, Input, Select, SearchInput, FilterChips, KV, Progress, Badge, useToast, ErrorState,
 } from '../../components/ui';
 import { fmtINR, fmtDateTime, dataOf, errMsg, downloadCsv, cn } from '../../lib/utils';
+import { DEPARTMENTS, DEFAULT_DEPARTMENT } from '../../lib/departments';
+import { DeptBadge } from '../../components/order/OrderParts';
 
 const rowStatus = (r) => (r.quantity_available <= 0 ? 'out' : r.quantity_available <= r.reorder_point ? 'low' : 'ok');
 const STATUS_TONE = { out: 'red', low: 'amber', ok: 'emerald' };
 const STATUS_LABEL = { out: 'Out of stock', low: 'Low stock', ok: 'In stock' };
 
-const EMPTY_ADD = { product_id: '', warehouse_id: '', quantity_available: 0, reorder_point: 5, min_stock: 0, max_stock: 9999 };
+// One stock row per product. Accepted goods from a delivery review are added automatically.
+const EMPTY_ADD = { product_id: '', quantity_available: 0, reorder_point: 5, min_stock: 0, max_stock: 9999 };
 
 export default function Inventory() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+  const collegeWide = !user?.department; // super admin / watchman / accountant see every department
   const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const [search, setSearch] = useState('');
-  const [whFilter, setWhFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(location.state?.status || 'all');
 
   const [editRow, setEditRow] = useState(null);
@@ -44,11 +47,10 @@ export default function Inventory() {
     setLoading(true);
     setError(null);
     try {
-      const [inv, sum, wh, pr] = await Promise.allSettled([api.get('/inventory'), api.get('/inventory/summary'), api.get('/warehouses'), api.get('/products')]);
+      const [inv, sum, pr] = await Promise.allSettled([api.get('/inventory'), api.get('/inventory/summary'), api.get('/products')]);
       if (inv.status === 'rejected') throw inv.reason;
       setRows(dataOf(inv.value));
       setSummary(sum.status === 'fulfilled' ? dataOf(sum.value, null) : null);
-      setWarehouses(wh.status === 'fulfilled' ? dataOf(wh.value) : []);
       setProducts(pr.status === 'fulfilled' ? dataOf(pr.value) : []);
     } catch (e) {
       setError(errMsg(e, 'Failed to load inventory'));
@@ -68,17 +70,23 @@ export default function Inventory() {
     return c;
   }, [rows]);
 
+  const addDept = collegeWide ? addForm.department || DEFAULT_DEPARTMENT : user?.department;
+  const untracked = useMemo(() => {
+    const tracked = new Set(rows.filter((r) => r.department === addDept).map((r) => r.product_id));
+    return products.filter((p) => !tracked.has(p.product_id));
+  }, [rows, products, addDept]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = rows.filter((r) => {
-      if (whFilter && String(r.warehouse_id) !== whFilter) return false;
+      if (deptFilter && r.department !== deptFilter) return false;
       if (statusFilter !== 'all' && rowStatus(r) !== statusFilter) return false;
       if (!q) return true;
-      return [r.product?.name, r.product?.sku, r.product?.category?.name, r.warehouse?.name].some((v) => String(v || '').toLowerCase().includes(q));
+      return [r.product?.name, r.product?.sku, r.product?.category?.name].some((v) => String(v || '').toLowerCase().includes(q));
     });
     const rank = { out: 0, low: 1, ok: 2 };
     return list.sort((a, b) => rank[rowStatus(a)] - rank[rowStatus(b)] || String(a.product?.name || '').localeCompare(b.product?.name || ''));
-  }, [rows, search, whFilter, statusFilter]);
+  }, [rows, search, statusFilter, deptFilter]);
 
   const saveEdit = async () => {
     if (!editRow) return;
@@ -104,7 +112,7 @@ export default function Inventory() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post('/inventory', addForm);
+      await api.post('/inventory', { ...addForm, department: addDept });
       toast.success('Inventory row added');
       setAddOpen(false);
       setAddForm(EMPTY_ADD);
@@ -119,8 +127,8 @@ export default function Inventory() {
   const exportCsv = () =>
     downloadCsv(
       'inventory.csv',
-      ['Product', 'SKU', 'Category', 'Warehouse', 'Qty', 'Reorder', 'Min', 'Max', 'Unit Price', 'Total Value', 'Status'],
-      filtered.map((r) => [r.product?.name, r.product?.sku, r.product?.category?.name, r.warehouse?.name, r.quantity_available, r.reorder_point, r.min_stock, r.max_stock, r.product?.unit_price, Number(r.product?.unit_price || 0) * (r.quantity_available || 0), STATUS_LABEL[rowStatus(r)]]),
+      ['Department', 'Product', 'SKU', 'Category', 'Qty', 'Reorder', 'Min', 'Max', 'Unit Price', 'Total Value', 'Status'],
+      filtered.map((r) => [r.department, r.product?.name, r.product?.sku, r.product?.category?.name, r.quantity_available, r.reorder_point, r.min_stock, r.max_stock, r.product?.unit_price, Number(r.product?.unit_price || 0) * (r.quantity_available || 0), STATUS_LABEL[rowStatus(r)]]),
     );
 
   const s = summary || {};
@@ -143,7 +151,7 @@ export default function Inventory() {
         </div>
       ),
     },
-    { key: 'warehouse', header: 'Warehouse', hideBelow: 'md', sortValue: (r) => r.warehouse?.name, render: (r) => <span className="text-slate-600">{r.warehouse?.name || '—'}</span> },
+    ...(collegeWide ? [{ key: 'department', header: 'Department', sortValue: (r) => r.department, render: (r) => <DeptBadge department={r.department} /> }] : []),
     {
       key: 'quantity_available',
       header: 'Stock level',
@@ -155,7 +163,7 @@ export default function Inventory() {
         return (
           <div className="min-w-[92px]">
             <div className="flex items-baseline justify-between mb-1">
-              <span className="font-semibold text-slate-900 tabular">{r.quantity_available}</span>
+              <span className="font-semibold text-slate-900 tabular">{r.quantity_available} <span className="text-[11px] font-normal text-slate-400">{r.product?.unit}</span></span>
               <span className="cq-wide-only text-[11px] text-slate-400 tabular">reorder at {r.reorder_point}</span>
             </div>
             <Progress value={pct} tone={STATUS_TONE[st]} size="sm" />
@@ -182,12 +190,14 @@ export default function Inventory() {
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
-        subtitle="Live stock levels across warehouses. Rows at or below their reorder point float to the top."
+        subtitle={collegeWide
+          ? 'Stock of every department. Accepted deliveries go to the requesting department automatically.'
+          : `Stock of ${user?.department}. Accepted deliveries are added automatically; low rows float to the top.`}
         icon={Boxes}
         actions={
           <>
             <Button variant="secondary" icon={Download} onClick={exportCsv} disabled={!filtered.length}>Export CSV</Button>
-            {isAdmin && <Button icon={Plus} onClick={() => setAddOpen(true)}>Add stock row</Button>}
+            {isAdmin && <Button icon={Plus} onClick={() => setAddOpen(true)} disabled={!untracked.length}>Add stock row</Button>}
           </>
         }
       />
@@ -202,9 +212,11 @@ export default function Inventory() {
       <div className="surface p-3 sm:p-4 space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
           <SearchInput value={search} onChange={setSearch} placeholder="Search product, SKU, category…" className="flex-1" />
-          <Select value={whFilter} onChange={(e) => setWhFilter(e.target.value)} className="sm:!w-56 !bg-white" placeholder="All warehouses">
-            {warehouses.map((w) => <option key={w.warehouse_id} value={w.warehouse_id}>{w.name}</option>)}
-          </Select>
+          {collegeWide && (
+            <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="sm:!w-56 !bg-surface" placeholder="All departments">
+              {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </Select>
+          )}
         </div>
         <FilterChips
           value={statusFilter}
@@ -225,7 +237,7 @@ export default function Inventory() {
         loading={loading}
         emptyIcon={Filter}
         emptyTitle={rows.length ? 'No rows match these filters' : 'No inventory tracked yet'}
-        emptyDescription={rows.length ? 'Adjust the status or warehouse filter.' : isAdmin ? 'Add a stock row to start tracking a product in a warehouse.' : 'Ask an admin to add stock rows.'}
+        emptyDescription={rows.length ? 'Adjust the status filter or search.' : 'Stock appears here when deliveries are accepted.'}
         footer={<span>Showing {filtered.length} of {rows.length} · {counts.low} low · {counts.out} out</span>}
         rowClassName={(r) => (rowStatus(r) === 'out' ? 'bg-red-50/30' : rowStatus(r) === 'low' ? 'bg-amber-50/30' : '')}
         expandable={(r) => (
@@ -233,7 +245,6 @@ export default function Inventory() {
             <KV label="Description" value={r.product?.description || 'No description'} className="col-span-2" />
             <KV label="Unit" value={r.product?.unit || '—'} />
             <KV label="Last updated" value={fmtDateTime(r.last_updated)} />
-            <KV label="Warehouse" value={`${r.warehouse?.name || '—'}${r.warehouse?.location ? ` · ${r.warehouse.location}` : ''}`} />
             <KV label="Reorder point" value={r.reorder_point} />
             <KV label="Min stock" value={r.min_stock} />
             <KV label="Max stock" value={r.max_stock} />
@@ -242,21 +253,25 @@ export default function Inventory() {
       />
 
       {/* Add */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} icon={Warehouse} title="Add stock row" description="Track a catalogue product in a warehouse." footer={
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} icon={Boxes} title="Add stock row" description="Start tracking a catalogue product that is not in stock yet." footer={
         <>
           <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
           <Button type="submit" form="add-inventory" loading={saving}>Add row</Button>
         </>
       }>
         <form id="add-inventory" onSubmit={submitAdd} className="space-y-4">
+          {collegeWide ? (
+            <Field label="Department" required>
+              <Select value={addDept} onChange={(e) => setAddForm({ ...addForm, department: e.target.value, product_id: '' })}>
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </Select>
+            </Field>
+          ) : (
+            <p className="text-sm text-slate-600">Department: <DeptBadge department={user?.department} /></p>
+          )}
           <Field label="Product" required>
             <Select required value={addForm.product_id} onChange={(e) => setAddForm({ ...addForm, product_id: e.target.value })} placeholder="Select product…">
-              {products.map((p) => <option key={p.product_id} value={p.product_id}>{p.name} ({p.sku})</option>)}
-            </Select>
-          </Field>
-          <Field label="Warehouse" required>
-            <Select required value={addForm.warehouse_id} onChange={(e) => setAddForm({ ...addForm, warehouse_id: e.target.value })} placeholder="Select warehouse…">
-              {warehouses.map((w) => <option key={w.warehouse_id} value={w.warehouse_id}>{w.name}</option>)}
+              {untracked.map((p) => <option key={p.product_id} value={p.product_id}>{p.name} ({p.sku})</option>)}
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-4">
@@ -269,7 +284,7 @@ export default function Inventory() {
       </Modal>
 
       {/* Edit */}
-      <Modal open={!!editRow} onClose={() => setEditRow(null)} icon={Pencil} title="Adjust stock" description={editRow ? `${editRow.product?.name} · ${editRow.warehouse?.name}` : ''} footer={
+      <Modal open={!!editRow} onClose={() => setEditRow(null)} icon={Pencil} title="Adjust stock" description={editRow?.product?.name || ''} footer={
         <>
           <Button variant="secondary" onClick={() => setEditRow(null)}>Cancel</Button>
           <Button loading={saving} onClick={saveEdit}>Save changes</Button>

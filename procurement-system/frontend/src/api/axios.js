@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });
@@ -12,6 +12,11 @@ api.interceptors.request.use(
       localStorage.getItem('inventbot_token') || localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // With the JSON default above, axios would serialise FormData to JSON and drop
+    // the files. Let the browser set multipart/form-data with its boundary instead.
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      config.headers.delete?.('Content-Type');
     }
     return config;
   },

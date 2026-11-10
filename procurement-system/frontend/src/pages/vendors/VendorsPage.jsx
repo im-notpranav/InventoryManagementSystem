@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Plus, Truck, Ban, CheckCircle2, Mail, Phone, MapPin, User, Users, ShieldOff, Copy, Check, Filter } from 'lucide-react';
 import api from '../../api/axios';
-import SpotlightCard from '../../components/reactbits/SpotlightCard/SpotlightCard';
 import { PageHeader, StatCard, Button, Modal, Field, Input, Textarea, SearchInput, FilterChips, StatusBadge, Avatar, EmptyState, useToast, useConfirm, ErrorState } from '../../components/ui';
 import { dataOf, errMsg, cn } from '../../lib/utils';
 
@@ -85,7 +84,7 @@ export default function VendorsPage() {
 
   const copyCreds = () => {
     const email = created?.vendor?.email || created?.email || form.email;
-    navigator.clipboard?.writeText(`${email} / vendor123`);
+    navigator.clipboard?.writeText(`${email} / demo1234`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -125,7 +124,7 @@ export default function VendorsPage() {
         <motion.div layout className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((v, i) => (
             <motion.div key={v.vendor_id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.04 }}>
-              <SpotlightCard spotlightColor={v.is_blacklisted ? 'rgba(239,68,68,0.12)' : 'rgba(46,117,182,0.14)'} className={cn('!rounded-2xl !p-5 !bg-white !border-slate-200/80 shadow-card h-full transition-shadow hover:shadow-card-hover', v.is_blacklisted && 'opacity-90')}>
+              <div className={cn('surface surface-hover p-5 h-full', v.is_blacklisted && 'opacity-90')}>
                 <div className="flex items-start gap-3">
                   <Avatar name={v.vendor_name} size="lg" solid className={cn(v.is_blacklisted && 'grayscale')} />
                   <div className="min-w-0 flex-1">
@@ -146,7 +145,7 @@ export default function VendorsPage() {
                     {v.is_blacklisted ? 'Reactivate' : 'Blacklist'}
                   </Button>
                 </div>
-              </SpotlightCard>
+              </div>
             </motion.div>
           ))}
         </motion.div>
@@ -180,7 +179,7 @@ export default function VendorsPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="font-mono text-sm text-slate-800">
                   <p>{created?.vendor?.email || created?.email || '—'}</p>
-                  <p className="text-slate-500">password: vendor123</p>
+                  <p className="text-slate-500">password: demo1234</p>
                 </div>
                 <Button size="sm" variant="secondary" icon={copied ? Check : Copy} onClick={copyCreds}>{copied ? 'Copied' : 'Copy'}</Button>
               </div>
@@ -206,7 +205,7 @@ export default function VendorsPage() {
               <Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} />
             </Field>
             <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-2.5 text-xs text-amber-900">
-              A portal account is auto-created with the default password <code className="font-mono bg-amber-100 px-1 rounded">vendor123</code>. Ask the vendor to change it after first login.
+              A portal account is auto-created with the default password <code className="font-mono bg-amber-100 px-1 rounded">demo1234</code>. Ask the vendor to change it after first login.
             </div>
           </form>
         )}

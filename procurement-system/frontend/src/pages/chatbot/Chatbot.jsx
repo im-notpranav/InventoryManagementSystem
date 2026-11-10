@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { SendHorizontal, Trash2, Package, ClipboardList, Shield, ShoppingCart, Sparkles, Store, BarChart3, WifiOff } from 'lucide-react';
+import { SendHorizontal, Trash2, Package, ClipboardList, Shield, ShoppingCart, Store, BarChart3, WifiOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import API from '../../api/index';
-import TextType from '../../components/reactbits/TextType/TextType';
-import GradientText from '../../components/reactbits/GradientText/GradientText';
-import SpotlightCard from '../../components/reactbits/SpotlightCard/SpotlightCard';
 import { MessageBubble, TypingDots, BotAvatar } from '../../components/chat/ChatParts';
 import { Badge, Button, useConfirm } from '../../components/ui';
 import { useReducedMotion } from '../../hooks';
@@ -70,7 +67,7 @@ export default function Chatbot() {
       setHistory((h) => [...h, { role: 'user', content: text }, { role: 'assistant', content: reply }].slice(-10));
     } catch (err) {
       let message = 'Connection failed. Check that the API is running.';
-      if (err?.response?.status === 503) message = 'InventBot is temporarily unavailable.';
+      if (err?.response?.status === 503) message = 'The assistant is temporarily unavailable.';
       else if (err?.response?.status === 429) message = 'Slow down a little — please wait a moment before sending more.';
       else if (err?.response?.data?.message) message = err.response.data.message;
       setMessages((m) => [...m, { id: `${Date.now()}-e`, role: 'assistant', content: message, timestamp: new Date(), isError: true, retryText: text }]);
@@ -91,15 +88,15 @@ export default function Chatbot() {
   const firstName = user?.name || 'there';
 
   return (
-    <div className="flex flex-col -mx-4 sm:-mx-6 lg:-mx-8 -my-6 lg:-my-8" style={{ height: 'calc(100vh - 68px)' }}>
+    <div className="flex flex-col -mx-3 sm:-mx-6 lg:-mx-8 -mt-4 -mb-8" style={{ height: 'calc(100vh - 76px)' }}>
       {/* header */}
-      <div className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-slate-200/70 bg-white/70 backdrop-blur">
+      <div className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-slate-200">
         <div className="flex items-center gap-3">
           <BotAvatar />
           <div>
-            <p className="font-display font-semibold text-slate-900 leading-tight">InventBot AI</p>
+            <p className="font-semibold text-slate-900 leading-tight">Assistant</p>
             <div className="flex items-center gap-1.5 text-xs">
-              {ready === null ? <span className="text-slate-400">Checking…</span> : ready ? <Badge tone="emerald" dot pulse size="xs">Online · gpt-4o-mini</Badge> : <Badge tone="red" dot size="xs">Not configured</Badge>}
+              {ready === null ? <span className="text-slate-400">Checking…</span> : ready ? <Badge tone="emerald" dot size="xs">Online</Badge> : <Badge tone="red" dot size="xs">Not configured</Badge>}
             </div>
           </div>
         </div>
@@ -115,30 +112,21 @@ export default function Chatbot() {
         <div className="mx-auto max-w-3xl">
           {messages.length === 0 ? (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="pt-6 sm:pt-12 text-center">
-              <div className="relative inline-flex">
-                <BotAvatar className="!w-16 !h-16 !rounded-2xl [&>svg]:w-8 [&>svg]:h-8" />
-                <motion.span className="absolute -inset-2 rounded-3xl border-2 border-brand-300/40" animate={reduced ? {} : { scale: [1, 1.15, 1], opacity: [0.6, 0, 0.6] }} transition={{ duration: 2.2, repeat: Infinity }} />
-              </div>
-              <h2 className="font-display text-2xl sm:text-[28px] font-bold text-slate-900 mt-5">Hello, {firstName}</h2>
-              <div className="mt-1.5 text-slate-500 text-[15px] min-h-[24px]">
-                {reduced ? (
-                  <span>Ask about stock, requests, warranties — or raise a purchase request.</span>
-                ) : (
-                  <TextType text={['Ask me about stock levels.', 'Check pending purchase requests.', 'Find warranties expiring soon.', 'Raise a purchase request in one line.']} typingSpeed={38} deletingSpeed={22} pauseDuration={1800} showCursor cursorCharacter="▍" cursorClassName="text-brand-500" className="text-slate-600" />
-                )}
-              </div>
+              <BotAvatar className="!w-14 !h-14 [&>svg]:w-7 [&>svg]:h-7 mx-auto" />
+              <h2 className="text-2xl sm:text-[28px] font-bold text-slate-900 mt-5">Hello, {firstName}</h2>
+              <p className="mt-1.5 text-slate-500 text-[15px]">Ask about stock, purchase requests or warranties, or raise a purchase request.</p>
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-left">
                 {STARTERS.map((s, i) => (
                   <motion.button key={s.title} type="button" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05 }} onClick={() => send(s.prompt)} className="text-left group">
-                    <SpotlightCard spotlightColor="rgba(46,117,182,0.14)" className="!rounded-2xl !p-4 !bg-white !border-slate-200/80 shadow-card transition-all group-hover:shadow-card-hover group-hover:-translate-y-0.5 h-full">
+                    <div className="surface surface-hover p-4 h-full">
                       <span className={cn('w-9 h-9 rounded-xl grid place-items-center', s.tone)}><s.icon className="w-4 h-4" /></span>
                       <p className="mt-3 text-sm font-semibold text-slate-900">{s.title}</p>
                       <p className="text-xs text-slate-500 mt-0.5">{s.desc}</p>
-                    </SpotlightCard>
+                    </div>
                   </motion.button>
                 ))}
               </div>
-              <p className="mt-6 text-xs text-slate-400 inline-flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-amber-400" /> InventBot answers from live data and can create purchase requests on your behalf.</p>
+              <p className="mt-6 text-xs text-slate-400">Answers come from live data. The assistant can raise purchase requests for you.</p>
             </motion.div>
           ) : (
             <div className="space-y-4">
@@ -148,7 +136,7 @@ export default function Chatbot() {
               {loading && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2.5">
                   <BotAvatar className="mt-0.5" />
-                  <div className="rounded-2xl rounded-tl-md bg-white border border-slate-200/80 shadow-card px-3.5 py-3"><TypingDots label={THINKING[thinkIdx]} /></div>
+                  <div className="rounded-2xl rounded-tl-md bg-surface border border-slate-200/80 shadow-card px-3.5 py-3"><TypingDots label={THINKING[thinkIdx]} /></div>
                 </motion.div>
               )}
               <div ref={endRef} />
@@ -158,10 +146,9 @@ export default function Chatbot() {
       </div>
 
       {/* composer */}
-      <div className="shrink-0 border-t border-slate-200/70 bg-white/80 backdrop-blur px-4 sm:px-6 py-3">
+      <div className="shrink-0 border-t border-slate-200 bg-surface px-4 sm:px-6 py-3">
         <div className="mx-auto max-w-3xl">
-          <div className={cn('flex items-end gap-2 rounded-2xl border bg-white px-3 py-2 shadow-card transition', loading ? 'border-slate-200' : 'border-slate-200 focus-within:border-brand-500 focus-within:shadow-glow')}>
-            <Sparkles className="w-4 h-4 text-brand-400 mb-2.5 shrink-0" />
+          <div className={cn('flex items-end gap-2 rounded-2xl border bg-surface px-3 py-2 shadow-card transition', loading ? 'border-slate-200' : 'border-slate-200 focus-within:border-brand-500 focus-within:shadow-glow')}>
             <textarea
               ref={textRef}
               rows={1}
@@ -169,10 +156,10 @@ export default function Chatbot() {
               disabled={loading || ready === false}
               onChange={(e) => { setInput(e.target.value.slice(0, 600)); resize(); }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder={ready === false ? 'Assistant unavailable' : 'Ask InventBot anything… (Enter to send, Shift+Enter for a new line)'}
+              placeholder={ready === false ? 'Assistant unavailable' : 'Ask a question (Enter to send, Shift+Enter for a new line)'}
               className="flex-1 resize-none bg-transparent text-sm leading-6 py-1.5 outline-none placeholder:text-slate-400 max-h-[140px]"
             />
-            <motion.button whileTap={{ scale: 0.94 }} type="button" onClick={() => send()} disabled={loading || !input.trim()} className="w-9 h-9 rounded-xl grid place-items-center bg-brand-700 text-white disabled:bg-slate-200 disabled:text-slate-400 transition shrink-0" aria-label="Send">
+            <motion.button whileTap={{ scale: 0.94 }} type="button" onClick={() => send()} disabled={loading || !input.trim()} className="w-9 h-9 rounded-xl grid place-items-center bg-brand-500 text-white disabled:bg-slate-200 disabled:text-slate-400 transition shrink-0" aria-label="Send">
               <SendHorizontal className="w-4 h-4" />
             </motion.button>
           </div>

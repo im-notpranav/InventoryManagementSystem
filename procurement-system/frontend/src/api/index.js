@@ -40,62 +40,25 @@ export const productsApi = {
   remove: (id) => api.delete(`/products/${id}`),
 };
 
-export const purchaseRequestsApi = {
-  getAll: (params) => api.get('/purchase-requests', { params }),
-  getById: (id) => api.get(`/purchase-requests/${id}`),
-  create: (data) => api.post('/purchase-requests', data),
-  approve: (id) => api.put(`/purchase-requests/${id}/approve`),
-  reject: (id, reason) => api.put(`/purchase-requests/${id}/reject`, { reason }),
-};
+// Order-cycle pages (requests, quotations, work orders, shipments, gate, billing)
+// call `api` directly; see pages/* and components/order/*.
 
-export const rfqApi = {
-  getAll: (params) => api.get('/rfq', { params }),
-  getById: (id) => api.get(`/rfq/${id}`),
-  create: (data) => api.post('/rfq', data),
-  addVendors: (id, vendorIds) => api.post(`/rfq/${id}/add-vendors`, { vendorIds }),
-  close: (id) => api.put(`/rfq/${id}/close`),
-  getQuotations: (rfqId) => api.get(`/rfq/${rfqId}/quotations`),
-  submitQuotation: (data) => api.post('/rfq/quotations', data),
-  selectQuotation: (quotationId, data) => api.post(`/rfq/quotations/${quotationId}/select`, data),
-  sendInvite: (data) => api.post('/rfq/send', data),
-  resendInvite: (quoteId) => api.post(`/rfq/${quoteId}/resend`),
-  compareQuotes: (requestId) => api.get(`/rfq/compare/${requestId}`),
-  selectQuote: (quoteId) => api.post(`/rfq/${quoteId}/select`),
-};
-
-export const purchaseOrdersApi = {
-  getAll: (params) => api.get('/purchase-orders', { params }),
-  getById: (id) => api.get(`/purchase-orders/${id}`),
-  create: (data) => api.post('/purchase-orders', data),
-  update: (id, data) => api.put(`/purchase-orders/${id}`, data),
-  getChangeRequests: (params) => api.get('/po-change-requests', { params }),
-  reviewChangeRequest: (id, data) => api.put(`/po-change-requests/${id}/review`, data),
-};
-
-export const goodsReceiptsApi = {
-  getAll: () => api.get('/goods-receipts'),
-  create: (data) => api.post('/goods-receipts', data),
-};
-
-export const invoicesApi = {
-  getAll: () => api.get('/invoices'),
-  getById: (id) => api.get(`/invoices/${id}`),
-  create: (data) => api.post('/invoices', data),
-  updateStatus: (id, data) => api.put(`/invoices/${id}/status`, data),
-  verifyMatch: (id) => api.post(`/invoices/${id}/verify-match`),
-};
-
+// data may be a plain object or FormData (when a document is attached).
 export const warrantiesApi = {
-  getAll: () => api.get('/warranties'),
+  getAll: (params) => api.get('/warranties', { params }),
   getExpiring: () => api.get('/warranties/expiring'),
   create: (data) => api.post('/warranties', data),
   update: (id, data) => api.put(`/warranties/${id}`, data),
+  renew: (id, data) => api.post(`/warranties/${id}/renew`, data),
   remove: (id) => api.delete(`/warranties/${id}`),
 };
 
 export const subscriptionsApi = {
-  getAll: () => api.get('/subscriptions'),
+  getAll: (params) => api.get('/subscriptions', { params }),
   create: (data) => api.post('/subscriptions', data),
+  update: (id, data) => api.put(`/subscriptions/${id}`, data),
+  renew: (id, data) => api.post(`/subscriptions/${id}/renew`, data),
+  remove: (id) => api.delete(`/subscriptions/${id}`),
 };
 
 export const notificationsApi = {
@@ -135,18 +98,6 @@ export const chatbotApi = {
     return api.post('/chatbot/message', payload);
   },
   getHistory: () => Promise.resolve({ success: true, data: [] }),
-};
-
-export const vendorPortalApi = {
-  getProfile: () => api.get('/vendor-portal/profile'),
-  getOrders: () => api.get('/vendor-portal/orders'),
-  getOrderDetails: (orderId) => api.get(`/vendor-portal/orders/${orderId}`),
-  confirmOrder: (orderId, data) => api.post(`/vendor-portal/orders/${orderId}/confirm`, data),
-  rejectOrder: (orderId, data) => api.post(`/vendor-portal/orders/${orderId}/reject`, data),
-  requestChanges: (orderId, data) => api.post(`/vendor-portal/orders/${orderId}/request-changes`, data),
-  getHistory: (orderId) => api.get(`/vendor-portal/orders/${orderId}/history`),
-  createPOChangeRequest: (data) => api.post('/po-change-requests', data),
-  getMyPOChangeRequests: () => api.get('/po-change-requests/mine'),
 };
 
 export default api;

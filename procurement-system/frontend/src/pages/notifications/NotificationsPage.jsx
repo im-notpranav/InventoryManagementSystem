@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bell, CheckCheck, Check, Inbox, Filter } from 'lucide-react';
@@ -18,6 +19,7 @@ const toneFor = (type = '') => {
 };
 
 export default function NotificationsPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -119,7 +121,7 @@ export default function NotificationsPage() {
                     const tone = toneFor(n.type);
                     return (
                       <StaggerItem key={n.notification_id}>
-                        <button type="button" onClick={() => markRead(n)} className={cn('w-full text-left flex items-start gap-3 px-5 py-4 transition hover:bg-slate-50', !n.is_read && 'bg-brand-50/30')}>
+                        <button type="button" onClick={() => { markRead(n); if (n.link) navigate(n.link); }} className={cn('w-full text-left flex items-start gap-3 px-5 py-4 transition hover:bg-slate-50', !n.is_read && 'bg-brand-50/30')}>
                           <span className={cn('mt-1.5 w-2 h-2 rounded-full shrink-0', n.is_read ? 'bg-transparent' : DOT[tone])} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">

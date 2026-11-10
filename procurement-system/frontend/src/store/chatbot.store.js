@@ -6,7 +6,7 @@ const useChatbotStore = create((set, get) => ({
     {
       id: 1,
       role: 'assistant',
-      content: "Hi! I'm **InventBot** 🤖, your AI inventory assistant. I can help you check stock, track orders, view warranties, and more. Try asking me something!",
+      content: "Hello. I can check stock levels, track purchase requests and orders, look up warranties, and raise a purchase request for you.",
       timestamp: new Date(),
     },
   ],
